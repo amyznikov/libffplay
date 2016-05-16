@@ -46,6 +46,7 @@ static void CameraPreview_free(JNIEnv * env, struct CameraPreview * c) {
 
 static void on_stream_state_changed(void * cookie, ff_output_stream * s, ff_output_stream_state state, int reason)
 {
+  (void)(s);
   struct CameraPreview * c = cookie;
   JNIEnv * env = NULL;
   if ( c->onStreamStateChaged && GetEnv(&env) == 0 ) {
@@ -58,40 +59,52 @@ static void on_stream_state_changed(void * cookie, ff_output_stream * s, ff_outp
 /*
  * Class:     com_sis_ffplay_CameraPreview
  * Method:    start_stream
- * Signature: (IIILjava/lang/String;Ljava/lang/String;)J
+ * Signature: (IIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;IIILjava/lang/String;)J
  */
 JNIEXPORT jlong JNICALL Java_com_sis_ffplay_CameraPreview_start_1stream(JNIEnv * env, jobject obj, jint cx, jint cy,
-    jint pixfmt, jstring server, jstring opts)
+    jint pixfmt, jstring server, jstring format, jstring codec, jint quality, jint gopsize, jint bitrate,
+    jstring ffopts)
 {
   ff_output_stream * ctx = NULL;
   struct CameraPreview * cookie = NULL;
+
+  const char * cformat = NULL;
   const char * cserver = NULL;
-  const char * copts = NULL;
+
+  const char * ccodec = NULL;
+  const char * cffopts = NULL;
 
   static const ff_output_stream_event_callback events_callback = {
     .stream_state_changed = on_stream_state_changed,
   };
 
+  cformat = cString(env, format);
   cserver = cString(env, server);
-  copts = cString(env, opts);
+  ccodec = cString(env, codec);
+  cffopts = cString(env, ffopts);
 
   if ( !cserver) {
     PDBG("NO SERVER SPECIFIED");
     goto end;
   }
 
-  PDBG("cx=%d cy=%d pixfmt=%d server='%s' opts='%s'", cx, cy, pixfmt, cserver, copts);
+  PDBG("cx=%d cy=%d pixfmt=%d server='%s' opts='%s'", cx, cy, pixfmt, cserver, cffopts);
 
   cookie = CameraPreview_init(env, obj);
 
   ctx = create_output_stream(&(struct create_output_stream_args ) {
         .server = cserver,
-        .opts = copts,
+        .format = cformat,
+        .ffopts = cffopts,
+        .codec = ccodec,
         .events_callback = &events_callback,
         .cookie = cookie,
         .cx = cx,
         .cy = cy,
-        .pxfmt = AV_PIX_FMT_NV21
+        .pxfmt = AV_PIX_FMT_NV21,
+        .quality = quality,
+        .gopsize = gopsize,
+        .bitrate = bitrate,
       });
 
   if ( ctx && !start_output_stream(ctx) ) {
@@ -104,7 +117,9 @@ JNIEXPORT jlong JNICALL Java_com_sis_ffplay_CameraPreview_start_1stream(JNIEnv *
 end:
 
   freeCString(env, server, cserver);
-  freeCString(env, opts, copts);
+  freeCString(env, format, cformat);
+  freeCString(env, codec, ccodec);
+  freeCString(env, ffopts, cffopts);
 
   return (jlong) (ssize_t) (ctx);
 }
@@ -116,6 +131,8 @@ end:
  */
 JNIEXPORT void JNICALL Java_com_sis_ffplay_CameraPreview_stop_1stream(JNIEnv * env, jobject obj, jlong handle)
 {
+  (void)(obj);
+
   ff_output_stream * ctx = (ff_output_stream *) (ssize_t) (handle);
 
   if ( ctx ) {
@@ -133,6 +150,8 @@ JNIEXPORT void JNICALL Java_com_sis_ffplay_CameraPreview_stop_1stream(JNIEnv * e
 JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_send_1video_1frame(JNIEnv * env, jobject obj, jlong handle,
     jbyteArray frame)
 {
+  (void)(obj);
+
   ff_output_stream * ctx;
   struct frm * frm = NULL;
   jboolean status = JNI_TRUE;
@@ -142,7 +161,7 @@ JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_send_1video_1frame(
   }
   else if ( (frm = pop_output_frame(ctx)) ) {
     frm->pts = ffmpeg_gettime_ms();
-    (*env)->GetByteArrayRegion(env, frame, 0, get_output_frame_data_size(ctx), frm->data);
+    (*env)->GetByteArrayRegion(env, frame, 0, get_output_frame_data_size(ctx), (jbyte*)frm->data);
     push_output_frame(ctx, frm);
   }
 

@@ -24,7 +24,7 @@ JNISOURCES      += com_sis_ffplay_CameraPreview.c
 
 # 
 # -mfpu=vfpv3-d16
-TARGET_CFLAGS   := -Wextra -O3 -g0 -mthumb -marm -mfpu=neon -march=armv7-a -mfloat-abi=softfp \
+TARGET_CFLAGS   := -Wall -Wextra -O3 -g0 -mthumb -marm -mfpu=neon -march=armv7-a -mfloat-abi=softfp \
                    -mvectorize-with-neon-quad -fsee \
                    -ffast-math -fassociative-math -fno-signed-zeros -fexpensive-optimizations \
                    -fno-strict-aliasing -T script -ffunction-sections -funwind-tables -fstack-protector \

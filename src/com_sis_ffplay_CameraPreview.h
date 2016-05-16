@@ -128,10 +128,10 @@ extern "C" {
 /*
  * Class:     com_sis_ffplay_CameraPreview
  * Method:    start_stream
- * Signature: (IIILjava/lang/String;Ljava/lang/String;)J
+ * Signature: (IIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;IIILjava/lang/String;)J
  */
 JNIEXPORT jlong JNICALL Java_com_sis_ffplay_CameraPreview_start_1stream
-  (JNIEnv *, jobject, jint, jint, jint, jstring, jstring);
+  (JNIEnv *, jobject, jint, jint, jint, jstring, jstring, jstring, jint, jint, jint, jstring);
 
 /*
  * Class:     com_sis_ffplay_CameraPreview
@@ -157,6 +157,17 @@ JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_send_1video_1frame
 
 #ifndef _Included_com_sis_ffplay_CameraPreview_AsyncEventHandler
 #define _Included_com_sis_ffplay_CameraPreview_AsyncEventHandler
+#ifdef __cplusplus
+extern "C" {
+#endif
+#ifdef __cplusplus
+}
+#endif
+#endif
+/* Header for class com_sis_ffplay_CameraPreview_StreamOptions */
+
+#ifndef _Included_com_sis_ffplay_CameraPreview_StreamOptions
+#define _Included_com_sis_ffplay_CameraPreview_StreamOptions
 #ifdef __cplusplus
 extern "C" {
 #endif

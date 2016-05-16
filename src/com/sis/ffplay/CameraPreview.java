@@ -73,6 +73,15 @@ public class CameraPreview extends SurfaceView
     public void onStreamFinished();
     public void onStreamStateChaged(int state, int reason);
   }
+  
+  public static class StreamOptions {
+    public String format;
+    public String codec;
+    public String ffopts;
+    public int quality;
+    public int gopsize;
+    public int bitrate;
+  }
 
     
   public CameraPreview(Context context) {
@@ -140,12 +149,13 @@ public class CameraPreview extends SurfaceView
 //      cy = size.height;
       cx = 640;
       cy = 480;
-      scx = cx;
-      scy = cy;
     }
 
     if (status == KERR_NONE) {
 
+      scx = cx;
+      scy = cy;
+      
       //parameters.setPictureSize(cx, cy);
       parameters.setPreviewSize(cx, cy);
 
@@ -180,7 +190,7 @@ public class CameraPreview extends SurfaceView
   }
   
 
-  public int startStream(String server, String opts) {
+  public int startStream(String server, StreamOptions opts) {
     
     int status = KERR_NONE;
 
@@ -444,10 +454,11 @@ public class CameraPreview extends SurfaceView
  
   //////////////////////////////////////////////////////////////////////
 
-  private native long start_stream(int cx, int cy, int pixfmt, String server, String opts);
-  private int startNativeStream(String server, String opts) {
+  private native long start_stream(int cx, int cy, int pixfmt, String server, String format, String codec, int quality, int gopsize, int bitrate, String ffopts);
+  private int startNativeStream(String server, StreamOptions opts) {
     Camera.Size s = parameters.getPreviewSize();
-    nativeStream_ = start_stream(s.width, s.height, parameters.getPreviewFormat(), server, opts); 
+    nativeStream_ = start_stream(s.width, s.height, parameters.getPreviewFormat(), server, opts.format, opts.codec,
+        opts.quality, opts.gopsize, opts.bitrate, opts.ffopts);
     return nativeStream_ == 0 ? KERR_START_STREAM_FAILS : KERR_NONE;
   }
 

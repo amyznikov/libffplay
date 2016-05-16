@@ -8,6 +8,7 @@
 #include "ffplay-java-api.h"
 #include "com_sis_ffplay_CameraPreview.h"
 #include "ffmpeg.h"
+#include "debug.h"
 
 #include <string.h>
 #include <stdarg.h>
@@ -21,12 +22,6 @@
 
 static JavaVM * g_jvm = NULL;
 
-
-//// fixme: strange unsatisfied linked error on android-18 device compiled with android-21
-//double atof(const char* nptr) {
-//  return (strtod(nptr, NULL));
-//}
-//
 
 
 int GetEnv(JNIEnv ** env) {
@@ -289,18 +284,24 @@ static int str2avll(const char * str)
   return ll;
 }
 
+static void av_log_callback(void *avcl, int level, const char *fmt, va_list arglist)
+{
+  if ( level <= av_log_get_level() ) {
+    AVClass * avc = avcl ? *(AVClass **) avcl : NULL;
+    ffplay_plogv(avc ? avc->item_name(avcl) : "avc", "ffmpeg", 0, fmt, arglist);
+  }
+}
+
 
 /** JNI OnLoad */
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM * jvm, void * reserved)
 {
   UNUSED(reserved);
 
-
-
   g_jvm = jvm;
 
-
   av_log_set_level(str2avll("warning"));
+  av_log_set_callback(av_log_callback);
   av_register_all();
   avformat_network_init();
 

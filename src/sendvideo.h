@@ -55,10 +55,15 @@ struct ff_output_stream_event_callback {
 typedef
 struct create_output_stream_args {
   const char * server;
-  const char * opts;
+  const char * format;
+  const char * codec;
+  const char * ffopts;
   const ff_output_stream_event_callback * events_callback;
   void * cookie;
   int cx, cy, pxfmt;
+  int quality;
+  int gopsize;
+  int bitrate;
 } create_output_stream_args;
 
 
