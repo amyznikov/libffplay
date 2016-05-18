@@ -39,19 +39,20 @@ public class CameraPreview extends SurfaceView
   public static final int STATE_STREAMING = 2;
 
   public static final int STREAM_STATE_IDLE = 0;
-  public static final int STREAM_STATE_starting = 1;
+  public static final int STREAM_STATE_STARTING = 1;
   public static final int STREAM_STATE_CONNECTING = 2;
   public static final int STREAM_STATE_ESTABLISHED = 3;
   public static final int STREAM_STATE_DISCONNECTING = 4;
   
   
+  public static final int KERR_BASE = 10000;
   public static final int KERR_NONE = 0;
-  public static final int KERR_IN_USE = 1;
-  public static final int KERR_NOT_READY = 2;
-  public static final int KERR_FRAME_SIZE_NOT_SUPPORTED = 3;
-  public static final int KERR_CAMERA_OPEN_FAILS = 4;
-  public static final int KERR_CAMERA_START_PREVIEW_FAILS = 5;
-  public static final int KERR_START_STREAM_FAILS = 6;
+  public static final int KERR_IN_USE = KERR_BASE + 1;
+  public static final int KERR_NOT_READY = KERR_BASE + 2;
+  public static final int KERR_FRAME_SIZE_NOT_SUPPORTED = KERR_BASE + 3;
+  public static final int KERR_CAMERA_OPEN_FAILS = KERR_BASE + 4;
+  public static final int KERR_CAMERA_START_PREVIEW_FAILS = KERR_BASE + 5;
+  public static final int KERR_START_STREAM_FAILS = KERR_BASE + 6;
   
   
   private Camera camera;
@@ -83,6 +84,14 @@ public class CameraPreview extends SurfaceView
     public int bitrate;
   }
 
+  public static class StreamStatus {
+    public int state;
+    public int inputFps, outputFps;
+    public int inputBitrate, outputBitrate;
+    public int framesRead, framesSent;
+    public int bytesRead, bytesSent;
+  }
+  
     
   public CameraPreview(Context context) {
     super(context);
@@ -108,6 +117,22 @@ public class CameraPreview extends SurfaceView
     return state_;
   }
 
+  
+  public static String getStreamStatusString(int stream_status) {
+    switch (stream_status) {
+    case STREAM_STATE_IDLE:
+      return "IDLE";
+    case STREAM_STATE_STARTING:
+      return "STARTING";
+    case STREAM_STATE_CONNECTING:
+      return "CONNECTING";
+    case STREAM_STATE_ESTABLISHED:
+      return "ESTABLISHED";
+    case STREAM_STATE_DISCONNECTING:
+      return "DISCONNECTING";
+    }
+    return "UNKNOWN";
+  }  
   
   public int startPreview(int cameraId) {
     return startPreview(cameraId, 0, 0);
@@ -221,6 +246,24 @@ public class CameraPreview extends SurfaceView
     }
   }
 
+  
+  public boolean getStreamStatus(StreamStatus stats) {
+    return nativeStream_ != 0 ? get_stream_status(nativeStream_, stats) : false;
+  }
+  
+  public static String getErrMsg(int status )
+  {
+    switch( status ) {
+    case KERR_NONE: return "OK"; 
+    case KERR_IN_USE: return "Object in use";
+    case KERR_NOT_READY: return "Object not ready";
+    case KERR_FRAME_SIZE_NOT_SUPPORTED: return "FRAME_SIZE_NOT_SUPPORTED";
+    case KERR_CAMERA_OPEN_FAILS: return "CAMERA_OPEN_FAILS";
+    case KERR_CAMERA_START_PREVIEW_FAILS: return "CAMERA_START_PREVIEW_FAILS";
+    case KERR_START_STREAM_FAILS: return "START_STREAM_FAILS";
+    }
+    return geterrmsg(status); 
+  }
   
   //////////////////////////////////////////////////////////////////////
   
@@ -475,7 +518,9 @@ public class CameraPreview extends SurfaceView
     return send_video_frame(nativeStream_, buffer);
   }  
   
-
+  private static native boolean get_stream_status(long handle, StreamStatus stats);
+  
+  
   private void onStreamStateChaged(int state, int reason) {
     if (eventListener != null) {
       h_.sendMessageDelayed(h_.obtainMessage(AEVT_STREAM_STATE_CHANGED, state, reason), 0);
@@ -485,4 +530,5 @@ public class CameraPreview extends SurfaceView
     }
   }
 
+  private static native String geterrmsg(int status);
 }

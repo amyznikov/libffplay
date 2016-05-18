@@ -99,28 +99,30 @@ extern "C" {
 #define com_sis_ffplay_CameraPreview_STATE_STREAMING 2L
 #undef com_sis_ffplay_CameraPreview_STREAM_STATE_IDLE
 #define com_sis_ffplay_CameraPreview_STREAM_STATE_IDLE 0L
-#undef com_sis_ffplay_CameraPreview_STREAM_STATE_starting
-#define com_sis_ffplay_CameraPreview_STREAM_STATE_starting 1L
+#undef com_sis_ffplay_CameraPreview_STREAM_STATE_STARTING
+#define com_sis_ffplay_CameraPreview_STREAM_STATE_STARTING 1L
 #undef com_sis_ffplay_CameraPreview_STREAM_STATE_CONNECTING
 #define com_sis_ffplay_CameraPreview_STREAM_STATE_CONNECTING 2L
 #undef com_sis_ffplay_CameraPreview_STREAM_STATE_ESTABLISHED
 #define com_sis_ffplay_CameraPreview_STREAM_STATE_ESTABLISHED 3L
 #undef com_sis_ffplay_CameraPreview_STREAM_STATE_DISCONNECTING
 #define com_sis_ffplay_CameraPreview_STREAM_STATE_DISCONNECTING 4L
+#undef com_sis_ffplay_CameraPreview_KERR_BASE
+#define com_sis_ffplay_CameraPreview_KERR_BASE 10000L
 #undef com_sis_ffplay_CameraPreview_KERR_NONE
 #define com_sis_ffplay_CameraPreview_KERR_NONE 0L
 #undef com_sis_ffplay_CameraPreview_KERR_IN_USE
-#define com_sis_ffplay_CameraPreview_KERR_IN_USE 1L
+#define com_sis_ffplay_CameraPreview_KERR_IN_USE 10001L
 #undef com_sis_ffplay_CameraPreview_KERR_NOT_READY
-#define com_sis_ffplay_CameraPreview_KERR_NOT_READY 2L
+#define com_sis_ffplay_CameraPreview_KERR_NOT_READY 10002L
 #undef com_sis_ffplay_CameraPreview_KERR_FRAME_SIZE_NOT_SUPPORTED
-#define com_sis_ffplay_CameraPreview_KERR_FRAME_SIZE_NOT_SUPPORTED 3L
+#define com_sis_ffplay_CameraPreview_KERR_FRAME_SIZE_NOT_SUPPORTED 10003L
 #undef com_sis_ffplay_CameraPreview_KERR_CAMERA_OPEN_FAILS
-#define com_sis_ffplay_CameraPreview_KERR_CAMERA_OPEN_FAILS 4L
+#define com_sis_ffplay_CameraPreview_KERR_CAMERA_OPEN_FAILS 10004L
 #undef com_sis_ffplay_CameraPreview_KERR_CAMERA_START_PREVIEW_FAILS
-#define com_sis_ffplay_CameraPreview_KERR_CAMERA_START_PREVIEW_FAILS 5L
+#define com_sis_ffplay_CameraPreview_KERR_CAMERA_START_PREVIEW_FAILS 10005L
 #undef com_sis_ffplay_CameraPreview_KERR_START_STREAM_FAILS
-#define com_sis_ffplay_CameraPreview_KERR_START_STREAM_FAILS 6L
+#define com_sis_ffplay_CameraPreview_KERR_START_STREAM_FAILS 10006L
 #undef com_sis_ffplay_CameraPreview_AEVT_STOP_STREAM
 #define com_sis_ffplay_CameraPreview_AEVT_STOP_STREAM 1L
 #undef com_sis_ffplay_CameraPreview_AEVT_STREAM_STATE_CHANGED
@@ -149,6 +151,22 @@ JNIEXPORT void JNICALL Java_com_sis_ffplay_CameraPreview_stop_1stream
 JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_send_1video_1frame
   (JNIEnv *, jobject, jlong, jbyteArray);
 
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    get_stream_status
+ * Signature: (JLcom/sis/ffplay/CameraPreview/StreamStatus;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_get_1stream_1status
+  (JNIEnv *, jclass, jlong, jobject);
+
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    geterrmsg
+ * Signature: (I)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_com_sis_ffplay_CameraPreview_geterrmsg
+  (JNIEnv *, jclass, jint);
+
 #ifdef __cplusplus
 }
 #endif
@@ -157,6 +175,17 @@ JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_send_1video_1frame
 
 #ifndef _Included_com_sis_ffplay_CameraPreview_AsyncEventHandler
 #define _Included_com_sis_ffplay_CameraPreview_AsyncEventHandler
+#ifdef __cplusplus
+extern "C" {
+#endif
+#ifdef __cplusplus
+}
+#endif
+#endif
+/* Header for class com_sis_ffplay_CameraPreview_StreamStatus */
+
+#ifndef _Included_com_sis_ffplay_CameraPreview_StreamStatus
+#define _Included_com_sis_ffplay_CameraPreview_StreamStatus
 #ifdef __cplusplus
 extern "C" {
 #endif

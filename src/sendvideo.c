@@ -36,6 +36,8 @@ struct ff_output_stream {
   ff_output_stream_state state;
   int status, reason;
   bool interrupt:1;
+
+  struct output_stream_stats stats;
 };
 
 
@@ -411,6 +413,9 @@ static void * output_stream_thread(void * arg)
         PERROR("av_write_frame() fails: status=%d %s", status, av_err2str(status));
       }
 
+      ++ctx->stats.framesSent;
+      ctx->stats.bytesSent += pkt.size;
+
       av_packet_unref(&pkt);
     }
 
@@ -660,8 +665,13 @@ size_t get_output_frame_data_size(const ff_output_stream * ctx)
 struct frm * pop_output_frame(ff_output_stream * ctx)
 {
   struct frm * frm;
+
   ctx_lock(ctx);
+
+  ++ctx->stats.framesRead;
+
   frm = ccfifo_ppop(&ctx->p);
+
   ctx_unlock(ctx);
   return frm;
 }
@@ -679,4 +689,31 @@ void push_output_frame(ff_output_stream * ctx, struct frm * frm)
 
   ctx_signal(ctx);
   ctx_unlock(ctx);
+}
+
+
+const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ctx)
+{
+  int64_t t = ffmpeg_gettime_ms();
+
+  ctx_lock(ctx);
+
+  ctx->stats.bytesRead = ctx->stats.framesRead * FRAME_DATA_SIZE(ctx->cx, ctx->cy);
+
+  if ( t > ctx->stats.timer ) {
+    ctx->stats.inputFps = (ctx->stats.framesRead - ctx->stats.inputFpsMark) * 1000LL / (t - ctx->stats.timer);
+    ctx->stats.inputBitrate = (ctx->stats.bytesRead - ctx->stats.inputBitrateMark) * 8000LL / (t - ctx->stats.timer);
+    ctx->stats.outputFps = (ctx->stats.framesSent - ctx->stats.outputFpsMark) * 1000LL / (t - ctx->stats.timer);
+    ctx->stats.outputBitrate = (ctx->stats.bytesSent - ctx->stats.outputBitrateMark) * 8000LL / (t - ctx->stats.timer);
+  }
+
+  ctx->stats.timer = t;
+  ctx->stats.inputFpsMark = ctx->stats.framesRead;
+  ctx->stats.inputBitrateMark = ctx->stats.bytesRead;
+  ctx->stats.outputFpsMark = ctx->stats.framesSent;
+  ctx->stats.outputBitrateMark = ctx->stats.bytesSent;
+
+  ctx_unlock(ctx);
+
+  return &ctx->stats;
 }

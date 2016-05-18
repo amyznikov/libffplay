@@ -80,6 +80,20 @@ size_t get_output_frame_data_size(const ff_output_stream * ctx);
 struct frm * pop_output_frame(ff_output_stream * ctx);
 void push_output_frame(ff_output_stream * ctx, struct frm * frm);
 
+
+struct output_stream_stats {
+  int64_t timer;
+  int inputFpsMark, outputFpsMark;
+  int inputBitrateMark, outputBitrateMark;
+  int inputFps, outputFps;
+  int inputBitrate, outputBitrate;
+  int framesRead, framesSent;
+  int bytesRead, bytesSent;
+};
+
+
+const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ctx);
+
 #ifdef __cplusplus
 }
 #endif

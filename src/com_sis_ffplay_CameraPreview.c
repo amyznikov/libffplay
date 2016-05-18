@@ -13,12 +13,17 @@
 #define UNUSED2(x,y)    (void)(x),(void)(y)
 
 
-// java class mapping
+/*
+ * java class mappings
+ * */
+
+
+/////////////////////////////////////////
+
 struct CameraPreview {
   jobject obj;
   jmethodID onStreamStateChaged;
 };
-
 
 
 static struct CameraPreview * CameraPreview_init(JNIEnv * env, jobject obj) {
@@ -31,8 +36,6 @@ static struct CameraPreview * CameraPreview_init(JNIEnv * env, jobject obj) {
   return c;
 }
 
-
-
 static void CameraPreview_free(JNIEnv * env, struct CameraPreview * c) {
 
   if ( c ) {
@@ -43,6 +46,89 @@ static void CameraPreview_free(JNIEnv * env, struct CameraPreview * c) {
   }
 }
 
+
+/////////////////////////////////////////
+
+
+
+static struct {
+  jclass class_;
+  jfieldID state;
+  jfieldID inputFps, outputFps;
+  jfieldID inputBitrate, outputBitrate;
+  jfieldID framesRead, framesSent;
+  jfieldID bytesRead, bytesSent;
+} StreamStatus;
+
+
+static bool StreamStatusClass_init(JNIEnv * env) {
+
+  static const struct {
+    const char * name;
+    const char * signature;
+    jfieldID * id;
+  } fields[] = {
+    { "state", "I",  &StreamStatus.state},
+    { "inputFps", "I", &StreamStatus.inputFps},
+    { "outputFps", "I",  &StreamStatus.outputFps},
+    { "inputBitrate",  "I", &StreamStatus.inputBitrate},
+    { "outputBitrate", "I", &StreamStatus.outputBitrate},
+    { "framesRead",  "I", &StreamStatus.framesRead},
+    { "framesSent",  "I", &StreamStatus.framesSent},
+    { "bytesRead",  "I", &StreamStatus.bytesRead},
+    { "bytesSent",  "I", &StreamStatus.bytesSent},
+  };
+
+
+  if ( !StreamStatus.class_ ) {
+    if ( !(StreamStatus.class_ = NewGlobalRef(env, FindClass(env, "com/sis/ffplay/CameraPreview$StreamStatus"))) ) {
+      return false;
+    }
+  }
+
+  for ( size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i ) {
+    *fields[i].id = GetFieldID(env, StreamStatus.class_, fields[i].name, fields[i].signature);
+    if ( !*fields[i].id ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+//static void StreamStatusClass_cleanup(JNIEnv * env)
+//{
+//  DeleteGlobalRef(env, StreamStatus.class_);
+//  memset(&StreamStatus, 0, sizeof(StreamStatus));
+//}
+
+
+static void StreamStatus_set(JNIEnv * env, jobject obj, ff_output_stream_state state, const struct output_stream_stats * stats)
+{
+  SetIntField(env, obj, StreamStatus.state, state);
+
+#define SET_STREAM_STATUS_INT_FIELD(f)  \
+    SetIntField(env, obj, StreamStatus.f, stats->f)
+
+  SET_STREAM_STATUS_INT_FIELD(inputFps);
+  SET_STREAM_STATUS_INT_FIELD(outputFps);
+  SET_STREAM_STATUS_INT_FIELD(inputBitrate);
+  SET_STREAM_STATUS_INT_FIELD(outputBitrate);
+  SET_STREAM_STATUS_INT_FIELD(framesRead);
+  SET_STREAM_STATUS_INT_FIELD(framesSent);
+  SET_STREAM_STATUS_INT_FIELD(bytesRead);
+  SET_STREAM_STATUS_INT_FIELD(bytesSent);
+
+#undef SET_STREAM_STATUS_INT_FIELD
+}
+
+
+
+
+
+
+
+/////////////////////////////////////////
 
 static void on_stream_state_changed(void * cookie, ff_output_stream * s, ff_output_stream_state state, int reason)
 {
@@ -166,4 +252,44 @@ JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_send_1video_1frame(
   }
 
   return status;
+}
+
+
+JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_get_1stream_1status(JNIEnv * env, jclass cls, jlong shandle,
+    jobject stats)
+{
+  UNUSED(cls);
+
+  ff_output_stream * ctx;
+  jboolean fok = JNI_FALSE;
+
+  if ( (ctx = (ff_output_stream *) (ssize_t) (shandle)) && (StreamStatus.class_ || StreamStatusClass_init(env)) ) {
+    StreamStatus_set(env, stats, get_output_stream_state(ctx), get_output_stream_stats(ctx));
+    fok = JNI_TRUE;
+  }
+
+  return fok;
+}
+
+
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    geterrmsg
+ * Signature: (I)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_com_sis_ffplay_CameraPreview_geterrmsg(JNIEnv * env, jclass cls, jint status)
+{
+  UNUSED(env);
+  UNUSED(cls);
+
+  jstring errmsg;
+
+  if ( status >= 0 ) {
+    errmsg = jString(env, strerror(status));
+  }
+  else {
+    errmsg = jString(env, av_err2str(status));
+  }
+
+  return errmsg;
 }
