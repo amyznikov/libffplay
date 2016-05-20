@@ -73,10 +73,10 @@ static bool StreamStatusClass_init(JNIEnv * env) {
     { "outputFps", "I",  &StreamStatus.outputFps},
     { "inputBitrate",  "I", &StreamStatus.inputBitrate},
     { "outputBitrate", "I", &StreamStatus.outputBitrate},
-    { "framesRead",  "I", &StreamStatus.framesRead},
-    { "framesSent",  "I", &StreamStatus.framesSent},
-    { "bytesRead",  "I", &StreamStatus.bytesRead},
-    { "bytesSent",  "I", &StreamStatus.bytesSent},
+    { "framesRead",  "J", &StreamStatus.framesRead},
+    { "framesSent",  "J", &StreamStatus.framesSent},
+    { "bytesRead",  "J", &StreamStatus.bytesRead},
+    { "bytesSent",  "J", &StreamStatus.bytesSent},
   };
 
 
@@ -110,15 +110,21 @@ static void StreamStatus_set(JNIEnv * env, jobject obj, ff_output_stream_state s
 #define SET_STREAM_STATUS_INT_FIELD(f)  \
     SetIntField(env, obj, StreamStatus.f, stats->f)
 
+#define SET_STREAM_STATUS_LONG_FIELD(f)  \
+    SetLongField(env, obj, StreamStatus.f, stats->f)
+
   SET_STREAM_STATUS_INT_FIELD(inputFps);
   SET_STREAM_STATUS_INT_FIELD(outputFps);
   SET_STREAM_STATUS_INT_FIELD(inputBitrate);
   SET_STREAM_STATUS_INT_FIELD(outputBitrate);
-  SET_STREAM_STATUS_INT_FIELD(framesRead);
-  SET_STREAM_STATUS_INT_FIELD(framesSent);
-  SET_STREAM_STATUS_INT_FIELD(bytesRead);
-  SET_STREAM_STATUS_INT_FIELD(bytesSent);
 
+  SET_STREAM_STATUS_LONG_FIELD(framesRead);
+  SET_STREAM_STATUS_LONG_FIELD(framesSent);
+  SET_STREAM_STATUS_LONG_FIELD(bytesRead);
+  SET_STREAM_STATUS_LONG_FIELD(bytesSent);
+
+
+#undef SET_STREAM_STATUS_LONG_FIELD
 #undef SET_STREAM_STATUS_INT_FIELD
 }
 

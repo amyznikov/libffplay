@@ -58,9 +58,9 @@ static void ctx_signal(ff_output_stream * ctx) {
   pthread_wait_broadcast(&ctx->lock);
 }
 
-static int ctx_interrupt_callback(void * arg)
+static int output_stream_interrupt_callback(void * arg)
 {
-  return ((ff_output_stream *) arg)->interrupt;
+  return ((ff_output_stream * )arg)->interrupt;
 }
 
 
@@ -327,7 +327,7 @@ static void * output_stream_thread(void * arg)
     goto end;
   }
 
-  oc->interrupt_callback.callback = ctx_interrupt_callback;
+  oc->interrupt_callback.callback = output_stream_interrupt_callback;
   oc->interrupt_callback.opaque = ctx;
 
 
@@ -344,9 +344,9 @@ static void * output_stream_thread(void * arg)
   set_output_stream_state(ctx, ff_output_stream_connecting, 0, true);
 
 
-  PDBG("C avio_open('%s')", ctx->server);
+  PDBG("C avio_open2('%s')", ctx->server);
 
-  if ( (status = avio_open(&oc->pb, ctx->server, AVIO_FLAG_WRITE)) < 0 ) {
+  if ( (status = avio_open2(&oc->pb, ctx->server, AVIO_FLAG_WRITE, &oc->interrupt_callback, NULL)) < 0 ) {
     PCRITICAL("avio_open(%s) fails: %s", ctx->server, av_err2str(status));
     goto end;
   }
@@ -409,12 +409,16 @@ static void * output_stream_thread(void * arg)
         av_packet_rescale_ts(&pkt, vcodec_ctx->time_base, os->time_base);
       }
 
+    //  PDBG("C av_write_frame('%s')", ctx->server);
       if ( (status = av_write_frame(oc, &pkt)) < 0 ) {
         PERROR("av_write_frame() fails: status=%d %s", status, av_err2str(status));
       }
+      else {
+        ++ctx->stats.framesSent;
+        ctx->stats.bytesSent += pkt.size;
+      }
 
-      ++ctx->stats.framesSent;
-      ctx->stats.bytesSent += pkt.size;
+//      PDBG("R av_write_frame('%s')", ctx->server);
 
       av_packet_unref(&pkt);
     }
@@ -635,10 +639,10 @@ void stop_output_stream(ff_output_stream * ctx)
   ctx_lock(ctx);
 
   ctx->interrupt = true;
-  ctx_signal(ctx);
 
   while ( ctx->state != ff_output_stream_idle ) {
     PDBG("WAIT STATE");
+    ctx_signal(ctx);
     ctx_wait(ctx, -1);
   }
 

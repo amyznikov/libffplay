@@ -154,9 +154,9 @@ jfieldID GetFieldID(JNIEnv * env, jclass cls, const char * name, const char * si
 }
 
 
-jint GetIntField(JNIEnv * env, jobject obj, jfieldID f)
+jint GetIntField(JNIEnv * env, jobject obj, jfieldID id)
 {
-  return (*env)->GetIntField(env, obj, f);
+  return (*env)->GetIntField(env, obj, id);
 }
 
 void SetIntField(JNIEnv* env, jobject obj, jfieldID id, jint v)
@@ -164,14 +164,24 @@ void SetIntField(JNIEnv* env, jobject obj, jfieldID id, jint v)
   (*env)->SetIntField(env, obj, id, v);
 }
 
-jobject GetObjectField(JNIEnv * env, jobject obj, jfieldID f)
+jlong GetLongField(JNIEnv* env, jobject obj, jfieldID id)
 {
-  return (*env)->GetObjectField(env, obj, f);
+  return (*env)->GetLongField(env, obj, id);
 }
 
-void SetObjectField(JNIEnv * env, jobject obj, jfieldID f, jobject v)
+void SetLongField(JNIEnv* env, jobject obj, jfieldID id, jlong v)
 {
-  (*env)->SetObjectField(env, obj, f, v);
+  (*env)->SetLongField(env, obj, id, v);
+}
+
+jobject GetObjectField(JNIEnv * env, jobject obj, jfieldID id)
+{
+  return (*env)->GetObjectField(env, obj, id);
+}
+
+void SetObjectField(JNIEnv * env, jobject obj, jfieldID id, jobject v)
+{
+  (*env)->SetObjectField(env, obj, id, v);
 }
 
 void call_void_method(JNIEnv * env, jobject obj, jmethodID method)

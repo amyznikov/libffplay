@@ -83,12 +83,12 @@ void push_output_frame(ff_output_stream * ctx, struct frm * frm);
 
 struct output_stream_stats {
   int64_t timer;
-  int inputFpsMark, outputFpsMark;
-  int inputBitrateMark, outputBitrateMark;
+  int64_t bytesRead, bytesSent;
+  int64_t framesRead, framesSent;
+  int64_t inputFpsMark, outputFpsMark;
+  int64_t inputBitrateMark, outputBitrateMark;
   int inputFps, outputFps;
   int inputBitrate, outputBitrate;
-  int framesRead, framesSent;
-  int bytesRead, bytesSent;
 };
 
 

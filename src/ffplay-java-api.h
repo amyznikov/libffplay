@@ -54,9 +54,12 @@ jmethodID GetObjectMethodID(JNIEnv * env, jobject obj, const char * name, const 
 jfieldID GetFieldID(JNIEnv * env, jclass cls, const char * name, const char * signature);
 
 
-jint  GetIntField(JNIEnv * env, jobject obj, jfieldID f);
+jint  GetIntField(JNIEnv * env, jobject obj, jfieldID id);
 void SetIntField(JNIEnv* env, jobject obj, jfieldID id, jint v);
-jobject GetObjectField(JNIEnv * env, jobject obj, jfieldID f);
+jlong GetLongField(JNIEnv* env, jobject obj, jfieldID id);
+void SetLongField(JNIEnv* env, jobject obj, jfieldID id, jlong v);
+jobject GetObjectField(JNIEnv * env, jobject obj, jfieldID id);
+void SetObjectField(JNIEnv * env, jobject obj, jfieldID id, jobject v);
 
 
 void call_void_method(JNIEnv * env, jobject obj, jmethodID method);

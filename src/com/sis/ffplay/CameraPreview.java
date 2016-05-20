@@ -85,11 +85,11 @@ public class CameraPreview extends SurfaceView
   }
 
   public static class StreamStatus {
-    public int state;
+    public long framesRead, framesSent;
+    public long bytesRead, bytesSent;
     public int inputFps, outputFps;
     public int inputBitrate, outputBitrate;
-    public int framesRead, framesSent;
-    public int bytesRead, bytesSent;
+    public int state;
   }
   
     
