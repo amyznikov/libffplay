@@ -35,7 +35,7 @@ struct ff_output_stream {
 
   ff_output_stream_state state;
   int status, reason;
-  bool interrupt:1;
+  bool interrupted:1;
 
   struct output_stream_stats stats;
 };
@@ -60,11 +60,11 @@ static void ctx_signal(ff_output_stream * ctx) {
 
 static int output_stream_interrupt_callback(void * arg)
 {
-  return ((ff_output_stream * )arg)->interrupt;
+  return ((ff_output_stream * )arg)->interrupted;
 }
 
 
-static void set_output_stream_state(ff_output_stream * ctx, ff_output_stream_state state, int reason, bool lock)
+static void set_stream_state(ff_output_stream * ctx, ff_output_stream_state state, int reason, bool lock)
 {
   if ( lock ) {
     ctx_lock(ctx);
@@ -201,11 +201,29 @@ end:
 }
 
 
-static void * output_stream_thread(void * arg)
+static bool is_io_error(int status)
 {
-  struct ff_output_stream * ctx = arg;
-  JNIEnv * env = NULL;
+  switch ( status ) {
+    case AVERROR(EIO) :
+      case AVERROR(EREMOTEIO) :
+      case AVERROR(ETIMEDOUT) :
+      case AVERROR(EPIPE) :
+      case AVERROR(ENETDOWN) :
+      case AVERROR(ENETUNREACH) :
+      case AVERROR(ENETRESET) :
+      case AVERROR(ECONNREFUSED) :
+      case AVERROR(ECONNRESET) :
+      case AVERROR(ECONNABORTED) :
+      // case AVERROR(EHOSTUNREACH):
+      return true;
+  }
+  return false;
+}
 
+
+
+static int output_loop(struct ff_output_stream * ctx)
+{
   AVDictionary * opts = NULL;
   AVDictionaryEntry * e = NULL;
 
@@ -221,7 +239,6 @@ static void * output_stream_thread(void * arg)
 
   struct frm * frm;
 
-  //enum AVPixelFormat input_fmt, output_fmt;
   AVFrame * output_frame = NULL;
   AVFrame * input_frame = NULL;
   struct SwsContext * sws = NULL;
@@ -237,7 +254,6 @@ static void * output_stream_thread(void * arg)
 
   PDBG("ENTER");
 
-  java_attach_current_thread(&env);
 
 
 
@@ -341,7 +357,7 @@ static void * output_stream_thread(void * arg)
 
   /// Start server connection
 
-  set_output_stream_state(ctx, ff_output_stream_connecting, 0, true);
+  set_stream_state(ctx, ff_output_stream_connecting, 0, true);
 
 
   PDBG("C avio_open2('%s')", ctx->server);
@@ -353,7 +369,7 @@ static void * output_stream_thread(void * arg)
 
   PDBG("R avio_open('%s')", ctx->server);
 
-  set_output_stream_state(ctx, ff_output_stream_established, 0, true);
+  set_stream_state(ctx, ff_output_stream_established, 0, true);
 
   /* Write the stream header */
   PDBG("C avformat_write_header('%s')", ctx->server);
@@ -373,11 +389,11 @@ static void * output_stream_thread(void * arg)
 
     frm = NULL;
 
-    while ( !ctx->interrupt && !(frm = ccfifo_ppop(&ctx->q)) ) {
+    while ( !ctx->interrupted && !(frm = ccfifo_ppop(&ctx->q)) ) {
       ctx_wait(ctx, -1);
     }
 
-    if ( ctx->interrupt ) {
+    if ( ctx->interrupted ) {
       status = AVERROR_EXIT;
       if ( frm ) {
         ccfifo_ppush(&ctx->p, frm);
@@ -435,10 +451,16 @@ static void * output_stream_thread(void * arg)
 end:
 
   PDBG("C set_output_stream_state(disconnecting, status=%d)", status);
-  set_output_stream_state(ctx, ff_output_stream_disconnecting, status, true);
+  set_stream_state(ctx, ff_output_stream_disconnecting, status, true);
 
-  if ( write_header_ok && (status = av_write_trailer(oc)) ) {
-    PERROR("av_write_trailer() fails: %s", av_err2str(status));
+  if ( write_header_ok && !is_io_error(status) ) {
+    int status2 = av_write_trailer(oc);
+    if ( status2 ) {
+      PERROR("av_write_trailer() fails: %s", av_err2str(status2));
+      if ( status == 0 ) {
+        status = status2;
+      }
+    }
   }
 
   if ( vcodec_ctx ) {
@@ -459,15 +481,65 @@ end:
 
   av_dict_free(&opts);
 
-  set_output_stream_state(ctx, ff_output_stream_idle, status, true);
-
-  java_deatach_current_thread();
 
   PDBG("LEAVE");
 
-  return NULL;
+  return status;
 }
 
+
+static void * output_stream_thread(void * arg)
+{
+  struct ff_output_stream * ctx = arg;
+  JNIEnv * env = NULL;
+
+  int64_t tmo;
+
+
+  int status = 0;
+
+  PDBG("ENTER");
+
+  java_attach_current_thread(&env);
+
+  ctx_lock(ctx);
+
+  while ( !ctx->interrupted && status >= 0 ) {
+
+    ctx_unlock(ctx);
+
+    set_stream_state(ctx, ff_output_stream_starting, 0, false);
+
+    status = output_loop(ctx);
+    PDBG("output_loop() finished with status=%d (%s): errno=%d (%s)", status, av_err2str(status), errno, strerror(errno));
+
+    ctx_lock(ctx);
+
+    if ( !ctx->interrupted && is_io_error(status) ) {
+
+      //PDEBUG("Make a short delay");
+
+      set_stream_state(ctx, ff_output_stream_paused, 0, false);
+
+      tmo = ffmpeg_gettime_ms() + 2 * 1000;
+      while ( !ctx->interrupted && ffmpeg_gettime_ms() < tmo ) {
+        ctx_wait(ctx, 500);
+      }
+
+      //PDEBUG("Delay finished");
+      status = 0;
+    }
+  }
+
+  set_stream_state(ctx, ff_output_stream_idle, status, false);
+
+  ctx_unlock(ctx);
+
+  java_deatach_current_thread();
+
+  PDBG("LEAVE: interrupted=%d", ctx->interrupted);
+  return NULL;
+}
 
 
 ff_output_stream * create_output_stream(const create_output_stream_args * args)
@@ -599,32 +671,14 @@ bool start_output_stream(ff_output_stream * ctx)
 
   if ( ctx->pid != 0 || ctx->state != ff_output_stream_idle ) {
     errno = EALREADY;
-    goto end;
-  }
-
-
-  set_output_stream_state(ctx, ff_output_stream_starting, 0, false);
-
-  if ( (status = pthread_create(&ctx->pid, NULL, output_stream_thread, ctx)) ) {
-    set_output_stream_state(ctx, ff_output_stream_idle, errno = status, false);
   }
   else {
+    set_stream_state(ctx, ff_output_stream_starting, 0, false);
 
-    while ( ctx->state == ff_output_stream_starting ) {
-      ctx_wait(ctx, -1);
-    }
-
-    if ( ctx->state != ff_output_stream_connecting && ctx->state != ff_output_stream_established ) {
-      errno = ctx->reason;
-      ctx_unlock(ctx);
-      pthread_join(ctx->pid, NULL);
-      ctx_lock(ctx);
-      ctx->pid = 0;
-      status = -1;
+    if ( (status = pthread_create(&ctx->pid, NULL, output_stream_thread, ctx)) ) {
+      set_stream_state(ctx, ff_output_stream_idle, errno = status, false);
     }
   }
-
-end:
 
   ctx_unlock(ctx);
 
@@ -638,7 +692,7 @@ void stop_output_stream(ff_output_stream * ctx)
 
   ctx_lock(ctx);
 
-  ctx->interrupt = true;
+  ctx->interrupted = true;
 
   while ( ctx->state != ff_output_stream_idle ) {
     PDBG("WAIT STATE");

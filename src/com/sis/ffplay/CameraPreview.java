@@ -43,6 +43,7 @@ public class CameraPreview extends SurfaceView
   public static final int STREAM_STATE_CONNECTING = 2;
   public static final int STREAM_STATE_ESTABLISHED = 3;
   public static final int STREAM_STATE_DISCONNECTING = 4;
+  public static final int STREAM_STATE_PAUSED = 5;
   
   
   public static final int KERR_BASE = 10000;
@@ -130,6 +131,8 @@ public class CameraPreview extends SurfaceView
       return "ESTABLISHED";
     case STREAM_STATE_DISCONNECTING:
       return "DISCONNECTING";
+    case STREAM_STATE_PAUSED:
+      return "PAUSED";
     }
     return "UNKNOWN";
   }  

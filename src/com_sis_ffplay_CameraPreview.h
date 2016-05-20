@@ -107,6 +107,8 @@ extern "C" {
 #define com_sis_ffplay_CameraPreview_STREAM_STATE_ESTABLISHED 3L
 #undef com_sis_ffplay_CameraPreview_STREAM_STATE_DISCONNECTING
 #define com_sis_ffplay_CameraPreview_STREAM_STATE_DISCONNECTING 4L
+#undef com_sis_ffplay_CameraPreview_STREAM_STATE_PAUSED
+#define com_sis_ffplay_CameraPreview_STREAM_STATE_PAUSED 5L
 #undef com_sis_ffplay_CameraPreview_KERR_BASE
 #define com_sis_ffplay_CameraPreview_KERR_BASE 10000L
 #undef com_sis_ffplay_CameraPreview_KERR_NONE

@@ -32,6 +32,7 @@ enum ff_output_stream_state {
   ff_output_stream_connecting = 2,
   ff_output_stream_established = 3,
   ff_output_stream_disconnecting = 4,
+  ff_output_stream_paused = 5,
 } ff_output_stream_state;
 
 
