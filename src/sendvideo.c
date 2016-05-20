@@ -11,6 +11,8 @@
 #include "ffplay-java-api.h"
 #include "debug.h"
 
+#define OUTPUT_FIFO_SIZE   4
+
 
 struct ff_output_stream {
 
@@ -560,11 +562,11 @@ ff_output_stream * create_output_stream(const create_output_stream_args * args)
     goto end;
   }
 
-  if ( !(ccfifo_init(&ctx->p, 10, sizeof(struct frm*))) ) {
+  if ( !(ccfifo_init(&ctx->p, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
     goto end;
   }
 
-  if ( !(ccfifo_init(&ctx->q, 10, sizeof(struct frm*))) ) {
+  if ( !(ccfifo_init(&ctx->q, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
     goto end;
   }
 
@@ -599,7 +601,7 @@ ff_output_stream * create_output_stream(const create_output_stream_args * args)
   ctx->status = 0;
 
   frmsize = offsetof(struct frm, data) + FRAME_DATA_SIZE(ctx->cx, ctx->cy);
-  for ( uint i = 0; i < 10; ++i ) {
+  for ( uint i = 0; i < OUTPUT_FIFO_SIZE; ++i ) {
     if ( !(frm = av_mallocz(frmsize)) ) {
       goto end;
     }
