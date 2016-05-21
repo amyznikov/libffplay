@@ -19,8 +19,8 @@
 //#define AUDIO_SAMPLE_RATE         8000    /* [Hz] */
 #define AUDIO_SAMPLE_FMT          AV_SAMPLE_FMT_S16P
 
-#define OUTPUT_FIFO_SIZE            12
-#define VIDEO_DROP_FIFO_THRESHOLD   6
+#define OUTPUT_FIFO_SIZE            16
+#define VIDEO_DROP_FIFO_THRESHOLD   8
 
 #define VIDEO_CODEC_TIME_BASE     (AVRational){1,1000}
 
@@ -57,7 +57,7 @@ struct ff_output_stream {
 
   ff_output_stream_state state;
   int status, reason;
-  bool interrupted:1;
+  bool interrupted:1, have_audio:1;
 
   struct output_stream_stats stats;
 };
@@ -208,7 +208,7 @@ static int create_video_codec(AVCodecContext ** cctx, ff_output_stream * ff, con
     // Set some defaults, may be overriden by ffmpeg_filter_codec_opts()
     // See http://www.chaneru.com/Roku/HLS/X264_Settings.htm
     av_dict_set(&codec_opts, "preset", "veryfast", 0);
-    av_dict_set(&codec_opts, "tune", "film", 0); // animation
+    av_dict_set(&codec_opts, "tune", "zerolatency", 0);
     av_dict_set(&codec_opts, "rc-lookahead", "3", 0);
     av_dict_set(&codec_opts, "profile", "Main", 0);
   }
@@ -463,8 +463,6 @@ static int output_loop(struct ff_output_stream * ff)
 
   AVCodecContext * acodec = NULL;
   AVFrame * output_audio_frame = NULL;
-  bool have_audio = false;
-
 
 
   const char * format_name = ff->format ? ff->format : "matroska";
@@ -560,7 +558,7 @@ static int output_loop(struct ff_output_stream * ff)
       goto end;
     }
 
-    if ( !(have_audio = start_audio_capture(ff)) ) {
+    if ( !(ff->have_audio = start_audio_capture(ff)) ) {
       PERROR("start_audio_capture() fails. Audio disabled");
     }
   }
@@ -584,7 +582,7 @@ static int output_loop(struct ff_output_stream * ff)
   }
 
   /// Create audio stream
-  if ( have_audio && (status = add_stream(oc, acodec)) ) {
+  if ( ff->have_audio && (status = add_stream(oc, acodec)) ) {
     PERROR("create_audio_stream('%s') fails: %s", acodec->codec->name, av_err2str(status));
     goto end;
   }
@@ -727,7 +725,7 @@ end:
   PDBG("C set_output_stream_state(disconnecting, status=%d)", status);
   set_stream_state(ff, ff_output_stream_disconnecting, status, true);
 
-  if ( have_audio ) {
+  if ( ff->have_audio ) {
     stop_audio_capture(ff);
   }
 
@@ -1024,19 +1022,21 @@ size_t get_video_frame_data_size(const ff_output_stream * ff)
   return FRAME_DATA_SIZE(ff->cx, ff->cy);
 }
 
-struct frm * pop_video_frame(ff_output_stream * ctx)
+struct frm * pop_video_frame(ff_output_stream * ff)
 {
   struct frm * frm = NULL;
 
-  ctx_lock(ctx);
+  ctx_lock(ff);
 
-  ++ctx->stats.framesRead;
+  ++ff->stats.framesRead;
 
-  if ( ctx->state == ff_output_stream_established && ccfifo_size(&ctx->p) >= VIDEO_DROP_FIFO_THRESHOLD ) {
-    frm = ccfifo_ppop(&ctx->p);
+  if ( ff->state == ff_output_stream_established ) {
+    if ( !ff->have_audio || ccfifo_size(&ff->p) >= VIDEO_DROP_FIFO_THRESHOLD ) {
+      frm = ccfifo_ppop(&ff->p);
+    }
   }
 
-  ctx_unlock(ctx);
+  ctx_unlock(ff);
   return frm;
 }
 
