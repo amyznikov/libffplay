@@ -17,8 +17,8 @@ NDK_TOOLCHAIN_VERSION = 4.9
 
 
 DEFINES         += -DFFPLAY_VERSION=\"$(VERSION)\"
-HEADERS         += sendvideo.h ffplay-java-api.h pthread_wait.h debug.h ffmpeg.h cclist.h
-SOURCES         += sendvideo.c ffplay-java-api.c debug.c ffmpeg.c 
+HEADERS         += sendvideo.h opensless-audio.h ffplay-java-api.h pthread_wait.h debug.h ffmpeg.h cclist.h
+SOURCES         += sendvideo.c opensless-audio.c ffplay-java-api.c debug.c ffmpeg.c 
 JNIHEADERS      += com_sis_ffplay_CameraPreview.h
 JNISOURCES      += com_sis_ffplay_CameraPreview.c
 
@@ -108,7 +108,8 @@ jni/Android.mk : Makefile
                              $$(SPECIALISDIR)/lib/libswresample.a \
                              $$(SPECIALISDIR)/lib/libavutil.a \
                              $$(SPECIALISDIR)/lib/libx264.a \
-                             -lz -lm -landroid -llog' >> $@
+                             $$(SPECIALISDIR)/lib/libmp3lame.a \
+                             -lOpenSLES -lz -lm -landroid -llog' >> $@
 	echo 'include $$(BUILD_SHARED_LIBRARY)' >> $@
 
 

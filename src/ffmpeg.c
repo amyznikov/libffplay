@@ -451,7 +451,7 @@ int ffmpeg_create_audio_frame(AVFrame ** out, enum AVSampleFormat fmt, int sampl
     frame->channels = channels;
     frame->sample_rate = sample_rate;
 
-    if ( (status = av_frame_get_buffer(frame, 64)) ) {
+    if ( (status = av_frame_get_buffer(frame, 0)) ) {
       av_frame_free(&frame);
     }
   }

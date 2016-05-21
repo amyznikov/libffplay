@@ -8,31 +8,51 @@
 #include "ffmpeg.h"
 #include "pthread_wait.h"
 #include "cclist.h"
+#include "opensless-audio.h"
 #include "ffplay-java-api.h"
 #include "debug.h"
+#include <endian.h>
 
-#define OUTPUT_FIFO_SIZE   4
+#define AUDIO_CAPTURE_BUFFERS     4
+#define AUDIO_SAMPLE_SIZE         2
+#define AUDIO_SAMPLE_RATE         16000    /* [Hz] */
+//#define AUDIO_SAMPLE_RATE         8000    /* [Hz] */
+#define AUDIO_SAMPLE_FMT          AV_SAMPLE_FMT_S16P
 
+#define OUTPUT_FIFO_SIZE            12
+#define VIDEO_DROP_FIFO_THRESHOLD   6
+
+#define VIDEO_CODEC_TIME_BASE     (AVRational){1,1000}
 
 struct ff_output_stream {
 
   char * server;
   char * format;
-  char * codec;
   char * ffopts;
-  int quality;
-  int gopsize;
-  int bitrate;
-  int cx, cy;
-  enum AVPixelFormat input_pix_fmt, output_pix_fmt;
 
-  int64_t firstpts;
+  char * video_codec;
+  int cx, cy;
+  enum AVPixelFormat input_pixfmt;
+  int vquality;
+  int gopsize;
+
+  char * audio_codec;
+  size_t audio_samples_per_buffer;
+  size_t audio_bytes_per_buffer;
+  int aquality;
+
+
   ff_output_stream_event_callback events_callback;
   void * cookie;
+
+  opensless_audio_capture * capdev;
+  int16_t * capbufs;
 
   pthread_t pid;
   pthread_wait_t lock;
 
+  int64_t firstpts;
+  int64_t atime;
   struct ccfifo p, q;
 
   ff_output_stream_state state;
@@ -42,6 +62,11 @@ struct ff_output_stream {
   struct output_stream_stats stats;
 };
 
+
+// defined below
+static void audio_capture_callback(void * cookie, void * bfr, size_t size);
+static bool start_audio_capture(ff_output_stream * ff);
+static void stop_audio_capture(ff_output_stream * ff);
 
 
 static void ctx_lock(ff_output_stream * ctx) {
@@ -60,8 +85,7 @@ static void ctx_signal(ff_output_stream * ctx) {
   pthread_wait_broadcast(&ctx->lock);
 }
 
-static int output_stream_interrupt_callback(void * arg)
-{
+static int output_stream_interrupt_callback(void * arg) {
   return ((ff_output_stream * )arg)->interrupted;
 }
 
@@ -89,121 +113,7 @@ static void set_stream_state(ff_output_stream * ctx, ff_output_stream_state stat
   }
 }
 
-
-static int create_video_stream(AVCodecContext ** cctx, AVFormatContext * oc, const AVCodec * codec,
-    const AVDictionary * options, const struct ff_output_stream * ffos)
-{
-  AVDictionary * codec_opts = NULL;
-  AVDictionaryEntry * e = NULL;
-  AVStream * os = NULL;
-
-  int bitrate =  ffos->bitrate >= 1000 ? ffos->bitrate : 128000;
-  int gop_size = ffos->gopsize > 0 ? ffos->gopsize : 25;
-  int quality = ffos->quality > 0 && ffos->quality <= 100 ? ffos->quality : 50;
-  int q;
-
-  int status = 0;
-
-  * cctx = NULL;
-
-  /// Filter codec opts
-
-  if ( (e = av_dict_get(options, "-b:v", NULL, 0)) ) {
-    if ( (bitrate = (int) av_strtod(e->value, NULL)) < 1000 ) {
-      PDBG("Bad output bitrate specified: %s", e->value);
-      status = AVERROR(EINVAL);
-      goto end;
-    }
-  }
-
-  if ( (e = av_dict_get(options, "-g", NULL, 0)) ) {
-    if ( sscanf(e->value, "%d", &gop_size) != 1 || gop_size < 1 ) {
-      PDBG("Bad output gop size specified: %s", e->value);
-      status = AVERROR(EINVAL);
-      goto end;
-    }
-  }
-
-  if ( (status = ffmpeg_filter_codec_opts(options, codec, AV_OPT_FLAG_ENCODING_PARAM, &codec_opts)) ) {
-    PERROR("ffmpeg_filter_codec_opts('%s') fails", codec->name);
-    goto end;
-  }
-
-
-  /// Open encoder
-
-  if ( !(*cctx = avcodec_alloc_context3(codec)) ) {
-    PDBG("avcodec_alloc_context3('%s') fails", codec->name);
-    status = AVERROR(ENOMEM);
-    goto end;
-  }
-
-  (*cctx)->time_base = (AVRational) { 1, 1000 };
-  (*cctx)->pix_fmt = ffos->output_pix_fmt;
-  (*cctx)->width = ffos->cx;
-  (*cctx)->height = ffos->cy;
-  (*cctx)->bit_rate = 0;// bitrate;
-  (*cctx)->gop_size = gop_size;
-  (*cctx)->me_range = 1;
-  (*cctx)->flags |= CODEC_FLAG_GLOBAL_HEADER;
-  (*cctx)->qmin = 1;
-  (*cctx)->qmax = 32;
-
-
-  PDBG("GOT quality=%d%%", quality);
-
-
-  if ( strcmp(codec->name, "libx264") == 0 ) {
-    if ( quality > 0 && quality <= 100 && !av_dict_get(options, "-crf", NULL, 0)
-        && !av_dict_get(options, "-qp", NULL, 0) ) {
-      if ( (q = (100 - quality) * 50 / 100 + 10) > 51 ) {
-        q = 51;
-      }
-      PDBG("SET qp=%d", q);
-      av_dict_set_int(&codec_opts, "qp", q, 0);
-    }
-  }
-  else if ( quality > 0 && quality <= 100 && !av_dict_get(options, "-qmin", NULL, 0)
-      && !av_dict_get(options, "-qmax", NULL, 0) ) {
-
-    if ( (q = (100 - quality) * 32 / 100 + 1) > 31 ) {
-      q = 31;
-    }
-    (*cctx)->qmin = (*cctx)->qmax = q;
-    PDBG("SET qminmax=%d", q);
-    av_dict_set_int(&codec_opts, "qmin", q, 0);
-    av_dict_set_int(&codec_opts, "qmax", q, 0);
-  }
-
-
-  if ( (status = avcodec_open2(*cctx, codec, &codec_opts)) ) {
-    PDBG("avcodec_open2('%s') fails: %s", codec->name, av_err2str(status));
-    goto end;
-  }
-
-  /// Alloc stream
-
-  if ( !(os = avformat_new_stream(oc, codec)) ) {
-    status = AVERROR(ENOMEM);
-    goto end;
-  }
-
-  if ( (status = avcodec_parameters_from_context(os->codecpar, *cctx)) < 0 ) {
-    PDBG("avcodec_parameters_from_context('%s') fails: %s", codec->name, av_err2str(status));
-    goto end;
-  }
-
-  os->time_base = (*cctx)->time_base;
-
-end:
-
-  av_dict_free(&codec_opts);
-
-  return status;
-}
-
-
-static bool is_io_error(int status)
+static bool is_ioerror(int status)
 {
   switch ( status ) {
     case AVERROR(EIO) :
@@ -224,32 +134,355 @@ static bool is_io_error(int status)
 
 
 
-static int output_loop(struct ff_output_stream * ctx)
+static int create_video_codec(AVCodecContext ** cctx, ff_output_stream * ff, const AVDictionary * opts)
+{
+  const char * codec_name = NULL;
+  const AVCodec * codec = NULL;
+
+  enum AVPixelFormat cpixfmt;
+  int bitrate, gop_size, quality;
+  int qmin = 1, qmax = 31, q;
+
+
+  AVDictionary * codec_opts = NULL;
+  AVDictionaryEntry * e = NULL;
+
+  int status = 0;
+
+  if ( (e = av_dict_get(opts, "-c:v", NULL, 0)) ) {
+    codec_name = e->value;
+  }
+  else if ( ff->video_codec && *ff->video_codec ) {
+    codec_name = ff->video_codec;
+  }
+  else {
+    codec_name = "libx264";
+  }
+
+  if ( !(codec = avcodec_find_encoder_by_name(codec_name)) ) {
+    status = AVERROR_ENCODER_NOT_FOUND;
+    PERROR("avcodec_find_encoder_by_name('%s') fails: %s", codec_name, av_err2str(status));
+    goto end;
+  }
+
+
+  if ( !(e = av_dict_get(opts, "-pix_fmt", NULL, 0)) ) {
+    cpixfmt = codec->pix_fmts ? codec->pix_fmts[0] : ff->input_pixfmt;
+    PDBG("PIXFMT %d SELECTED", cpixfmt);
+  }
+  else if ( (cpixfmt = av_get_pix_fmt(e->value)) == AV_PIX_FMT_NONE ) {
+    PDBG("Bad pixel format specified: %s", e->value);
+    status = AVERROR(EINVAL);
+    goto end;
+  }
+
+
+  if ( (e = av_dict_get(opts, "-b:v", NULL, 0)) ) {
+    if ( (bitrate = (int) av_strtod(e->value, NULL)) < 1000 ) {
+      PDBG("Bad output bitrate specified: %s", e->value);
+      status = AVERROR(EINVAL);
+      goto end;
+    }
+  }
+  else {
+    bitrate = 128000;
+  }
+
+
+  if ( (e = av_dict_get(opts, "-g", NULL, 0)) ) {
+    if ( sscanf(e->value, "%d", &gop_size) != 1 || gop_size < 1 ) {
+      PDBG("Bad output gop size specified: %s", e->value);
+      status = AVERROR(EINVAL);
+      goto end;
+    }
+  }
+  else if ( ff->gopsize > 0 ) {
+    gop_size = ff->gopsize;
+  }
+  else {
+    gop_size = 25;
+  }
+
+
+  if ( strcmp(codec->name, "libx264") == 0 ) {
+    // Set some defaults, may be overriden by ffmpeg_filter_codec_opts()
+    // See http://www.chaneru.com/Roku/HLS/X264_Settings.htm
+    av_dict_set(&codec_opts, "preset", "veryfast", 0);
+    av_dict_set(&codec_opts, "tune", "film", 0); // animation
+    av_dict_set(&codec_opts, "rc-lookahead", "3", 0);
+    av_dict_set(&codec_opts, "profile", "Main", 0);
+  }
+
+  if ( (status = ffmpeg_filter_codec_opts(opts, codec, AV_OPT_FLAG_ENCODING_PARAM, &codec_opts)) ) {
+    PERROR("ffmpeg_filter_codec_opts('%s') fails", codec->name);
+    goto end;
+  }
+
+  quality = ff->vquality > 0 && ff->vquality <= 100 ? ff->vquality : 50;
+
+
+  if ( strcmp(codec->name, "libx264") == 0 ) {
+    if ( !av_dict_get(opts, "-crf", NULL, 0) && !av_dict_get(opts, "-qp", NULL, 0) ) {
+      if ( (q = (100 - quality) * 50 / 100 + 10) > 51 ) {
+        q = 51;
+      }
+      av_dict_set_int(&codec_opts, "qp", q, 0);
+    }
+  }
+  else {
+
+    if ( (q = (100 - quality) * 32 / 100 + 1) > 31 ) {
+      q = 31;
+    }
+    qmin = qmax = q;
+
+    if ( !av_dict_get(opts, "-qmin", NULL, 0) ) {
+      av_dict_set_int(&codec_opts, "qmin", q, 0);
+    }
+
+    if ( !av_dict_get(opts, "-qmax", NULL, 0) ) {
+      av_dict_set_int(&codec_opts, "qmax", q, 0);
+    }
+
+    if ( !av_dict_get(opts, "-q:v", NULL, 0) ) {
+      av_dict_set_int(&codec_opts, "q", q, 0);
+    }
+  }
+
+  if ( !(*cctx = avcodec_alloc_context3(codec)) ) {
+    PDBG("avcodec_alloc_context3('%s') fails", codec->name);
+    status = AVERROR(ENOMEM);
+    goto end;
+  }
+
+  (*cctx)->time_base = VIDEO_CODEC_TIME_BASE;
+  (*cctx)->pix_fmt = cpixfmt;
+  (*cctx)->width = ff->cx;
+  (*cctx)->height = ff->cy;
+  (*cctx)->bit_rate = 0;// bitrate;
+  (*cctx)->gop_size = gop_size;
+  (*cctx)->me_range = 1;
+  (*cctx)->flags |= CODEC_FLAG_GLOBAL_HEADER;
+  (*cctx)->qmin = qmin;
+  (*cctx)->qmax = qmax;
+
+  if ( (status = avcodec_open2(*cctx, codec, &codec_opts)) ) {
+    PDBG("avcodec_open2('%s') fails: %s", codec->name, av_err2str(status));
+    goto end;
+  }
+
+end:
+
+  av_dict_free(&codec_opts);
+
+  return status;
+}
+
+static int create_audio_codec(AVCodecContext ** cctx, ff_output_stream * ff, const AVDictionary * opts)
+{
+  const char * codec_name = NULL;
+  const AVCodec * codec = NULL;
+
+  AVDictionary * codec_opts = NULL;
+  AVDictionaryEntry * e = NULL;
+  int q;
+
+  int status = 0;
+
+
+  if ( (e = av_dict_get(opts, "-c:a", NULL, 0)) ) {
+    codec_name = e->value;
+  }
+  else if ( ff->audio_codec && *ff->audio_codec ) {
+    codec_name = ff->audio_codec;
+  }
+  else {
+    codec_name = "libmp3lame";
+  }
+
+  if ( !(codec = avcodec_find_encoder_by_name(codec_name)) ) {
+    status = AVERROR_ENCODER_NOT_FOUND;
+    PERROR("avcodec_find_encoder_by_name('%s') fails: %s", codec_name, av_err2str(status));
+    goto end;
+  }
+
+
+  if ( (status = ffmpeg_filter_codec_opts(opts, codec, AV_OPT_FLAG_ENCODING_PARAM, &codec_opts)) ) {
+    PERROR("ffmpeg_filter_codec_opts('%s') fails", codec->name);
+    goto end;
+  }
+
+  if ( strcmp(codec->name, "libmp3lame") == 0 ) {
+
+    // see https://trac.ffmpeg.org/wiki/Encode/MP3
+    if ( !av_dict_get(codec_opts, "q", NULL, 0) ) {
+
+      if ( ff->aquality <= 0 || ff->aquality > 100 ) {
+        q = 9;
+      }
+      else if ( (q = (100 - ff->aquality) / 10) > 9 ) {
+        q = 9;
+      }
+
+      av_dict_set_int(&codec_opts, "q", q, 0);
+    }
+  }
+
+
+  if ( !(*cctx = avcodec_alloc_context3(codec)) ) {
+    PDBG("avcodec_alloc_context3('%s') fails", codec->name);
+    status = AVERROR(ENOMEM);
+    goto end;
+  }
+
+  ///
+
+  (*cctx)->time_base = (AVRational ) { 1, AUDIO_SAMPLE_RATE };
+  (*cctx)->sample_rate = AUDIO_SAMPLE_RATE;
+  (*cctx)->sample_fmt = AUDIO_SAMPLE_FMT;
+  (*cctx)->channels = 1;
+  (*cctx)->channel_layout = AV_CH_LAYOUT_MONO;
+
+  if ( (status = avcodec_open2(*cctx, codec, &codec_opts)) ) {
+    PDBG("avcodec_open2('%s') fails: %s", codec->name, av_err2str(status));
+    goto end;
+  }
+
+  if ( (*cctx)->frame_size ) {
+    ff->audio_samples_per_buffer = (*cctx)->frame_size;
+  }
+  else {
+    ff->audio_samples_per_buffer = 320;
+  }
+
+  ff->audio_bytes_per_buffer = ff->audio_samples_per_buffer * AUDIO_SAMPLE_SIZE; // fixme here
+
+  PDBG("USING AUDIO_SAMPLES_PER_BUFFER=%zu", ff->audio_samples_per_buffer);
+
+end: ;
+
+  return status;
+}
+
+
+static int add_stream(AVFormatContext * oc, AVCodecContext * codec)
+{
+  AVStream * os = NULL;
+
+  int status = 0;
+
+  if ( !(os = avformat_new_stream(oc, codec->codec)) ) {
+    status = AVERROR(ENOMEM);
+    goto end;
+  }
+
+  if ( (status = avcodec_parameters_from_context(os->codecpar, codec)) < 0 ) {
+    PDBG("avcodec_parameters_from_context('%s') fails: %s", codec->codec->name, av_err2str(status));
+    goto end;
+  }
+
+  os->time_base = codec->time_base;
+
+end:;
+
+  return status;
+}
+
+
+
+static bool start_audio_capture(ff_output_stream * ff)
+{
+  int status = 0;
+
+  if ( (status = opensless_audio_initialize()) != SL_RESULT_SUCCESS ) {
+    PERROR("opensless_audio_initialize() fails: status=0x%0X", status);
+    goto end;
+  }
+
+  if ( !(ff->capbufs = av_malloc(AUDIO_CAPTURE_BUFFERS * ff->audio_bytes_per_buffer)) ) {
+    PERROR("av_malloc(AUDIO_CAPTURE_BUFFERS) fails");
+    status = SL_RESULT_MEMORY_FAILURE;
+    goto end;
+  }
+
+  /* create capture device */
+  status = opensless_audio_capture_create(&ff->capdev, ff, audio_capture_callback, AUDIO_CAPTURE_BUFFERS, AUDIO_SAMPLE_RATE);
+  if ( status ) {
+    PERROR("audio_capture_create() fails: status=0x%0X", status);
+    goto end;
+  }
+
+  /* Enqueue capture bufers */
+  for ( int i = 0; i < AUDIO_CAPTURE_BUFFERS; ++i ) {
+    int16_t * capbuf = ff->capbufs + i * ff->audio_samples_per_buffer;
+    if ( (status = opensless_audio_capture_enqueue(ff->capdev, capbuf, ff->audio_bytes_per_buffer)) != 0 ) {
+      PERROR("audio_capture_enqueue() fails: status=0x%0X", status);
+      goto end;
+    }
+  }
+
+  /* start audio capture device */
+  if ( (status = opensless_audio_capture_start(ff->capdev)) != 0 ) {
+    PERROR("audio_capture_start() fails: status=0x%0X", status);
+    goto end;
+  }
+
+end:
+  if ( status ) {
+    av_free(ff->capbufs);
+    opensless_audio_capture_destroy(&ff->capdev);
+    opensless_audio_shutdown();
+  }
+
+  return status == 0;
+}
+
+static void stop_audio_capture(ff_output_stream * ff)
+{
+  if ( ff->capdev ) {
+    opensless_audio_capture_stop(ff->capdev);
+    opensless_audio_capture_destroy(&ff->capdev);
+    opensless_audio_shutdown();
+    av_free(ff->capbufs);
+    ff->capbufs = NULL;
+  }
+}
+
+
+static int output_loop(struct ff_output_stream * ff)
 {
   AVDictionary * opts = NULL;
   AVDictionaryEntry * e = NULL;
 
-  const char * format_name = ctx->format ? ctx->format : "matroska";
-  AVOutputFormat * oformat = NULL;
-
-  const char * vcodec_name =  ctx->codec ?  ctx->codec : "libx264";
-  const AVCodec * vcodec = NULL;
-  AVCodecContext * vcodec_ctx = NULL;
-
-  AVFormatContext * oc = NULL;
-  AVStream * os = NULL;
-
-  struct frm * frm;
-
-  AVFrame * output_frame = NULL;
-  AVFrame * input_frame = NULL;
+  AVCodecContext * vcodec = NULL;
+  AVFrame * output_video_frame = NULL;
+  AVFrame * input_video_frame = NULL;
   struct SwsContext * sws = NULL;
   int cx, cy;
 
+
+  AVCodecContext * acodec = NULL;
+  AVFrame * output_audio_frame = NULL;
+  bool have_audio = false;
+
+
+
+  const char * format_name = ff->format ? ff->format : "matroska";
+  AVOutputFormat * oformat = NULL;
+  AVFormatContext * oc = NULL;
+  bool write_header_ok = false;
+
+
+  struct frm * frm;
   AVPacket pkt;
+  int pkt_size;
   int gotpkt;
 
-  bool write_header_ok = false;
+
+  AVCodecContext * codec = NULL;
+  int stidx;
+
+
 
   int status;
 
@@ -260,28 +493,22 @@ static int output_loop(struct ff_output_stream * ctx)
 
 
 
-  cx = ctx->cx;
-  cy = ctx->cy;
+  cx = ff->cx;
+  cy = ff->cy;
+
 
   av_init_packet(&pkt);
   pkt.data = NULL, pkt.size = 0;
 
 
   /// Parse command line
-
-  if ( !ctx->ffopts && strcmp(vcodec_name, "libx264") == 0 ) {
-    ctx->ffopts = strdup("-preset veryfast -tune zerolatency -rc-lookahead 3 -profile Main -level 42"); //
-  }
-
-  if ( (status = av_dict_parse_string(&opts, ctx->ffopts, " \t", " \t", 0)) ) {
+  if ( (status = av_dict_parse_string(&opts, ff->ffopts, " \t", " \t", 0)) ) {
     PERROR("av_dict_parse_string() fails: %s", av_err2str(status));
     goto end;
   }
 
 
-
   /// Get output format
-
   if ( (e = av_dict_get(opts, "-f", NULL, 0)) ) {
     format_name = e->value;
   }
@@ -293,169 +520,219 @@ static int output_loop(struct ff_output_stream * ctx)
 
 
 
-  /// Get output codec
-
-  if ( (e = av_dict_get(opts, "-c:v", NULL, 0)) ) {
-    vcodec_name = e->value;
-  }
-  if ( !(vcodec = avcodec_find_encoder_by_name(vcodec_name)) ) {
-    status = AVERROR_ENCODER_NOT_FOUND;
-    PERROR("avcodec_find_encoder_by_name('%s') fails: %s", vcodec_name, av_err2str(status));
+  /// Open codecs
+  if ( (status = create_video_codec(&vcodec, ff, opts)) ) {
+    PERROR("create_video_codec() fails: %s", av_err2str(status));
     goto end;
   }
 
+  if ( ff->audio_codec && *ff->audio_codec && (status = create_audio_codec(&acodec, ff, opts)) ) {
+    PERROR("create_audio_codec() fails: %s", av_err2str(status));
+    goto end;
+  }
 
 
 
   /// Alloc frame buffers
-
-  if ( !(e = av_dict_get(opts, "-pix_fmt", NULL, 0)) ) {
-    ctx->output_pix_fmt = vcodec->pix_fmts ? vcodec->pix_fmts[0] : ctx->input_pix_fmt;
-    PDBG("PIXFMT ctx->output_pix_fmt=%d SELECTED", ctx->output_pix_fmt);
-  }
-  else if ( (ctx->output_pix_fmt = av_get_pix_fmt(e->value)) == AV_PIX_FMT_NONE ) {
-    PDBG("Bad pixel format specified: %s", e->value);
-    status = AVERROR(EINVAL);
-    goto end;
-  }
-
-
-  if ( (status = ffmpeg_create_video_frame(&input_frame, ctx->input_pix_fmt, ctx->cx, ctx->cy, 0)) ) {
+  PDBG("create input_video_frame: %s %dx%d", av_get_pix_fmt_name(ff->input_pixfmt), ff->cx, ff->cy );
+  if ( (status = ffmpeg_create_video_frame(&input_video_frame, ff->input_pixfmt, ff->cx, ff->cy, 0)) ) {
     PERROR("ffmpeg_create_video_frame(input_frame) fails: %s", av_err2str(status));
     goto end;
   }
 
-  if ( (status = ffmpeg_create_video_frame(&output_frame, ctx->output_pix_fmt, ctx->cx, ctx->cy, 32)) ) {
+  PDBG("create output_video_frame: %s %dx%d", av_get_pix_fmt_name(vcodec->pix_fmt), vcodec->width, vcodec->height );
+  if ( (status = ffmpeg_create_video_frame(&output_video_frame, vcodec->pix_fmt, vcodec->width, vcodec->height, 32)) ) {
     PERROR("ffmpeg_create_video_frame(output_frame) fails: %s", av_err2str(status));
     goto end;
   }
 
-  if ( !(sws = sws_getContext(cx, cy, ctx->input_pix_fmt, cx, cy, ctx->output_pix_fmt, SWS_FAST_BILINEAR, NULL, NULL, NULL)) ) {
+  if ( !(sws = sws_getContext(cx, cy, ff->input_pixfmt, vcodec->width, vcodec->height, vcodec->pix_fmt, SWS_FAST_BILINEAR, NULL, NULL, NULL)) ) {
     PERROR("sws_getContext() fails");
     goto end;
   }
 
 
+  if ( acodec ) {
+    PDBG("C ffmpeg_create_audio_frame(): %s %d Hz %d samples", av_get_sample_fmt_name(acodec->sample_fmt), acodec->sample_rate, ff->audio_samples_per_buffer );
+    if ( (status = ffmpeg_create_audio_frame(&output_audio_frame, acodec->sample_fmt, acodec->sample_rate,
+        ff->audio_samples_per_buffer, 1, AV_CH_LAYOUT_MONO)) ) {
+      PERROR("ffmpeg_create_audio_frame() fails: %s", av_err2str(status));
+      goto end;
+    }
+
+    if ( !(have_audio = start_audio_capture(ff)) ) {
+      PERROR("start_audio_capture() fails. Audio disabled");
+    }
+  }
 
 
   /// Alloc output context
 
-  if ( (status = avformat_alloc_output_context2(&oc, oformat, NULL, ctx->server)) < 0 ) {
+  if ( (status = avformat_alloc_output_context2(&oc, oformat, NULL, ff->server)) < 0 ) {
     PERROR("avformat_alloc_output_context2() fails: %s", av_err2str(status));
     goto end;
   }
 
   oc->interrupt_callback.callback = output_stream_interrupt_callback;
-  oc->interrupt_callback.opaque = ctx;
-
+  oc->interrupt_callback.opaque = ff;
 
 
   /// Create video stream
-  if ( (status = create_video_stream(&vcodec_ctx, oc, vcodec, opts, ctx)) ) {
-    PERROR("create_video_stream('%s') fails: %s", vcodec->name, av_err2str(status));
+  if ( (status = add_stream(oc, vcodec)) ) {
+    PERROR("create_video_stream('%s') fails: %s", vcodec->codec->name, av_err2str(status));
+    goto end;
+  }
+
+  /// Create audio stream
+  if ( have_audio && (status = add_stream(oc, acodec)) ) {
+    PERROR("create_audio_stream('%s') fails: %s", acodec->codec->name, av_err2str(status));
     goto end;
   }
 
 
   /// Start server connection
+  set_stream_state(ff, ff_output_stream_connecting, 0, true);
 
-  set_stream_state(ctx, ff_output_stream_connecting, 0, true);
 
+  PDBG("C avio_open2('%s')", ff->server);
 
-  PDBG("C avio_open2('%s')", ctx->server);
-
-  if ( (status = avio_open2(&oc->pb, ctx->server, AVIO_FLAG_WRITE, &oc->interrupt_callback, NULL)) < 0 ) {
-    PCRITICAL("avio_open(%s) fails: %s", ctx->server, av_err2str(status));
+  if ( (status = avio_open2(&oc->pb, ff->server, AVIO_FLAG_WRITE, &oc->interrupt_callback, NULL)) < 0 ) {
+    PCRITICAL("avio_open(%s) fails: %s", ff->server, av_err2str(status));
     goto end;
   }
 
-  PDBG("R avio_open('%s')", ctx->server);
-
-  set_stream_state(ctx, ff_output_stream_established, 0, true);
+  set_stream_state(ff, ff_output_stream_established, 0, true);
 
   /* Write the stream header */
-  PDBG("C avformat_write_header('%s')", ctx->server);
+  PDBG("C avformat_write_header('%s')", ff->server);
 
   if ( (status = avformat_write_header(oc, NULL)) < 0 ) {
     PERROR("avformat_write_header() fails: %s", av_err2str(status));
     goto end;
   }
 
-  PDBG("R avformat_write_header('%s')", ctx->server);
+  PDBG("R avformat_write_header('%s')", ff->server);
 
   write_header_ok = true;
 
-  ctx_lock(ctx);
+  ctx_lock(ff);
 
   while ( status >= 0 ) {
 
     frm = NULL;
+    stidx = -1;
 
-    while ( !ctx->interrupted && !(frm = ccfifo_ppop(&ctx->q)) ) {
-      ctx_wait(ctx, -1);
+    while ( !ff->interrupted && !(frm = ccfifo_ppop(&ff->q)) ) {
+      ctx_wait(ff, -1);
     }
 
-    if ( ctx->interrupted ) {
+    if ( ff->interrupted ) {
       status = AVERROR_EXIT;
       if ( frm ) {
-        ccfifo_ppush(&ctx->p, frm);
+        ccfifo_ppush(&ff->p, frm);
       }
       break;
     }
 
-    ctx_unlock(ctx);
+    ctx_unlock(ff);
 
-    output_frame->pts = frm->pts;
     gotpkt = false;
 
-    if ( (status = av_image_fill_arrays(input_frame->data, input_frame->linesize, frm->data, input_frame->format, cx, cy, 1)) <= 0 ) {
-      PERROR("av_image_fill_arrays() fails: %s", av_err2str(status));
-    }
-    else if ( (status = sws_scale(sws, (const uint8_t * const*)input_frame->data, input_frame->linesize, 0, cy, output_frame->data, output_frame->linesize)) < 0 ) {
-      PERROR("sws_scale() fails: %s", av_err2str(status));
-    }
-    else if ( (status = avcodec_encode_video2(vcodec_ctx, &pkt, output_frame, &gotpkt)) < 0 ) {
-      PERROR("avcodec_encode_video2() fails: %s", av_err2str(status));
-    }
-    else if ( gotpkt ) {
+    switch (frm->type) {
 
-      pkt.stream_index = 0;
+      case frm_type_video: {
+        stidx = 0;
+        codec = vcodec;
+        output_video_frame->pts = frm->pts;
+        if ( (status = av_image_fill_arrays(input_video_frame->data, input_video_frame->linesize, frm->data, input_video_frame->format, cx, cy, 1)) <= 0 ) {
+          PERROR("av_image_fill_arrays() fails: %s", av_err2str(status));
+        }
+        else if ( (status = sws_scale(sws, (const uint8_t * const*)input_video_frame->data, input_video_frame->linesize, 0, cy, output_video_frame->data, output_video_frame->linesize)) < 0 ) {
+          PERROR("sws_scale() fails: %s", av_err2str(status));
+        }
+        else if ( (status = avcodec_encode_video2(vcodec, &pkt, output_video_frame, &gotpkt)) < 0 ) {
+          PERROR("avcodec_encode_video2() fails: %s", av_err2str(status));
+        }
+      }
+      break;
 
-      os = oc->streams[0];
+      case frm_type_audio: {
+        stidx = 1;
+        codec = acodec;
+        output_audio_frame->pts = frm->pts;
+        output_audio_frame->nb_samples = ff->audio_samples_per_buffer;
+        if ( (status = avcodec_fill_audio_frame(output_audio_frame, 1, AUDIO_SAMPLE_FMT, frm->data, frm->size, 0)) < 0 ) {
+          PERROR("avcodec_fill_audio_frame() fails: %s", av_err2str(status));
+        }
+        else if ( (status = avcodec_encode_audio2(acodec, &pkt, output_audio_frame, &gotpkt)) < 0 ) {
+          PERROR("avcodec_encode_audio2() fails: %s", av_err2str(status));
+        }
+      }
+      break;
+    }
 
-      if ( vcodec_ctx->time_base.num != os->time_base.num || vcodec_ctx->time_base.den != os->time_base.den ) {
-        av_packet_rescale_ts(&pkt, vcodec_ctx->time_base, os->time_base);
+
+    if ( gotpkt ) {
+
+      const AVStream * os = oc->streams[pkt.stream_index = stidx];
+
+      if ( codec->time_base.num != os->time_base.num || codec->time_base.den != os->time_base.den ) {
+        av_packet_rescale_ts(&pkt, codec->time_base, os->time_base);
       }
 
-    //  PDBG("C av_write_frame('%s')", ctx->server);
-      if ( (status = av_write_frame(oc, &pkt)) < 0 ) {
+//      {
+//        int64_t upts = av_rescale_ts(pkt.pts, os->time_base, (AVRational){1, 1000});
+//        int64_t udts = av_rescale_ts(pkt.dts, os->time_base, (AVRational){1, 1000});
+//        PDBG("av_write_frame(): st=%d pts=%s dts=%s ctb=%s stb=%s upts=%s udts=%s size=%d",strmidx,
+//            av_ts2str(pkt.pts), av_ts2str(pkt.dts),
+//            av_tb2str(codec->time_base), av_tb2str(os->time_base),
+//            av_ts2str(upts), av_ts2str(udts),
+//            pkt.size);
+//      }
+
+
+      // av_interleaved_write_frame() will destroy pkt
+      pkt_size = pkt.size;
+
+      if ( oc->nb_streams > 1 ) {
+        if ( (status = av_interleaved_write_frame(oc, &pkt)) < 0 ) {
+          PERROR("av_interleaved_write_frame(st=%d) fails: status=%d %s", stidx, status, av_err2str(status));
+        }
+      }
+      else if ( (status = av_write_frame(oc, &pkt)) < 0 ) {
         PERROR("av_write_frame() fails: status=%d %s", status, av_err2str(status));
       }
-      else {
-        ++ctx->stats.framesSent;
-        ctx->stats.bytesSent += pkt.size;
-      }
 
-//      PDBG("R av_write_frame('%s')", ctx->server);
+      if ( status >= 0 ) {
+        if ( stidx == 0 ) {
+          ++ff->stats.framesSent;
+        }
+        ff->stats.bytesSent += pkt_size;
+      }
 
       av_packet_unref(&pkt);
     }
 
-    ctx_lock(ctx);
+    ctx_lock(ff);
 
     if ( frm ) {
-      ccfifo_ppush(&ctx->p, frm);
+      ccfifo_ppush(&ff->p, frm);
     }
   }
 
-  ctx_unlock(ctx);
+  ctx_unlock(ff);
 
 end:
 
   PDBG("C set_output_stream_state(disconnecting, status=%d)", status);
-  set_stream_state(ctx, ff_output_stream_disconnecting, status, true);
+  set_stream_state(ff, ff_output_stream_disconnecting, status, true);
 
-  if ( write_header_ok && !is_io_error(status) ) {
+  if ( have_audio ) {
+    stop_audio_capture(ff);
+  }
+
+
+  if ( write_header_ok && !is_ioerror(status) ) {
     int status2 = av_write_trailer(oc);
     if ( status2 ) {
       PERROR("av_write_trailer() fails: %s", av_err2str(status2));
@@ -465,11 +742,26 @@ end:
     }
   }
 
-  if ( vcodec_ctx ) {
-    if ( avcodec_is_open(vcodec_ctx) ) {
-      avcodec_close(vcodec_ctx);
+  av_frame_free(&output_audio_frame);
+  av_frame_free(&output_video_frame);
+  av_frame_free(&input_video_frame);
+
+  if ( sws ) {
+    sws_freeContext(sws);
+  }
+
+  if ( vcodec ) {
+    if ( avcodec_is_open(vcodec) ) {
+      avcodec_close(vcodec);
     }
-    avcodec_free_context(&vcodec_ctx);
+    avcodec_free_context(&vcodec);
+  }
+
+  if ( acodec ) {
+    if ( avcodec_is_open(acodec) ) {
+      avcodec_close(acodec);
+    }
+    avcodec_free_context(&acodec);
   }
 
   if ( oc ) {
@@ -477,12 +769,11 @@ end:
     avformat_free_context(oc);
   }
 
-  if ( sws ) {
-    sws_freeContext(sws);
-  }
-
   av_dict_free(&opts);
 
+  while ( (frm = ccfifo_ppop(&ff->q)) ) {
+    ccfifo_ppush(&ff->p, frm);
+  }
 
   PDBG("LEAVE");
 
@@ -492,9 +783,8 @@ end:
 
 static void * output_stream_thread(void * arg)
 {
-  struct ff_output_stream * ctx = arg;
+  struct ff_output_stream * ff = arg;
   JNIEnv * env = NULL;
-
   int64_t tmo;
 
 
@@ -504,28 +794,32 @@ static void * output_stream_thread(void * arg)
 
   java_attach_current_thread(&env);
 
-  ctx_lock(ctx);
+  ctx_lock(ff);
 
-  while ( !ctx->interrupted && status >= 0 ) {
+  while ( !ff->interrupted && status >= 0 ) {
 
-    ctx_unlock(ctx);
+    ff->firstpts = 0;
+    ff->atime = 0;
+    memset(&ff->stats, 0, sizeof(ff->stats));
 
-    set_stream_state(ctx, ff_output_stream_starting, 0, false);
+    ctx_unlock(ff);
 
-    status = output_loop(ctx);
+    set_stream_state(ff, ff_output_stream_starting, 0, false);
+
+    status = output_loop(ff);
     PDBG("output_loop() finished with status=%d (%s): errno=%d (%s)", status, av_err2str(status), errno, strerror(errno));
 
-    ctx_lock(ctx);
+    ctx_lock(ff);
 
-    if ( !ctx->interrupted && is_io_error(status) ) {
+    if ( !ff->interrupted && is_ioerror(status) ) {
 
       //PDEBUG("Make a short delay");
 
-      set_stream_state(ctx, ff_output_stream_paused, 0, false);
+      set_stream_state(ff, ff_output_stream_paused, 0, false);
 
       tmo = ffmpeg_gettime_ms() + 2 * 1000;
-      while ( !ctx->interrupted && ffmpeg_gettime_ms() < tmo ) {
-        ctx_wait(ctx, 500);
+      while ( !ff->interrupted && ffmpeg_gettime_ms() < tmo ) {
+        ctx_wait(ff, 500);
       }
 
       //PDEBUG("Delay finished");
@@ -533,22 +827,24 @@ static void * output_stream_thread(void * arg)
     }
   }
 
-  set_stream_state(ctx, ff_output_stream_idle, status, false);
 
-  ctx_unlock(ctx);
+  set_stream_state(ff, ff_output_stream_idle, status, false);
+
+  ctx_unlock(ff);
 
   java_deatach_current_thread();
 
-  PDBG("LEAVE: interrupted=%d", ctx->interrupted);
+  PDBG("LEAVE: interrupted=%d", ff->interrupted);
   return NULL;
 }
 
 
 ff_output_stream * create_output_stream(const create_output_stream_args * args)
 {
-  ff_output_stream * ctx = NULL;
+  ff_output_stream * ff = NULL;
   struct frm * frm;
   size_t frmsize;
+  size_t frmdatasize;
 
   bool fok = false;
 
@@ -558,151 +854,157 @@ ff_output_stream * create_output_stream(const create_output_stream_args * args)
     goto end;
   }
 
-  if ( !(ctx = av_mallocz(sizeof(*ctx))) ) {
+  if ( !(ff = av_mallocz(sizeof(*ff))) ) {
     goto end;
   }
 
-  if ( !(ccfifo_init(&ctx->p, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
+  if ( !(ccfifo_init(&ff->p, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
     goto end;
   }
 
-  if ( !(ccfifo_init(&ctx->q, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
+  if ( !(ccfifo_init(&ff->q, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
     goto end;
   }
 
 
-  ctx->server = av_strdup(args->server);
+  ff->server = av_strdup(args->server);
 
   if ( args->format && *args->format ) {
-    ctx->format = av_strdup(args->format);
-  }
-
-  if ( args->codec && *args->codec ) {
-    ctx->codec = av_strdup(args->codec);
+    ff->format = av_strdup(args->format);
   }
 
   if ( args->ffopts && *args->ffopts ) {
-    ctx->ffopts = av_strdup(args->ffopts);
+    ff->ffopts = av_strdup(args->ffopts);
+  }
+
+  if ( args->cvcodec && *args->cvcodec ) {
+    ff->video_codec = av_strdup(args->cvcodec);
+  }
+
+  if ( args->cacodec && *args->cacodec ) {
+    ff->audio_codec = av_strdup(args->cacodec);
   }
 
   if ( args->events_callback ) {
-    ctx->events_callback = *args->events_callback;
-    ctx->cookie = args->cookie;
+    ff->events_callback = *args->events_callback;
+    ff->cookie = args->cookie;
   }
 
-  ctx->cx = args->cx;
-  ctx->cy = args->cy;
-  ctx->input_pix_fmt = args->pxfmt;
-  ctx->quality = args->quality;
-  ctx->gopsize = args->gopsize;
-  ctx->bitrate = args->bitrate;
+  ff->cx = args->cx;
+  ff->cy = args->cy;
+  ff->input_pixfmt = args->pxfmt;
+  ff->vquality = args->cvquality;
+  ff->aquality = args->caquality;
+  ff->gopsize = args->gopsize;
 
-  ctx->state = ff_output_stream_idle;
-  ctx->status = 0;
+  ff->state = ff_output_stream_idle;
+  ff->status = 0;
 
-  frmsize = offsetof(struct frm, data) + FRAME_DATA_SIZE(ctx->cx, ctx->cy);
+  if ( (frmdatasize = FRAME_DATA_SIZE(ff->cx, ff->cy)) < 2 * 1024 ) { // fixme: actually depends on max audio buffer size
+    frmdatasize = 2 * 1024;
+  }
+
+  frmsize = offsetof(struct frm, data) + frmdatasize;
   for ( uint i = 0; i < OUTPUT_FIFO_SIZE; ++i ) {
     if ( !(frm = av_mallocz(frmsize)) ) {
       goto end;
     }
-    ccfifo_ppush(&ctx->p, frm);
+    ccfifo_ppush(&ff->p, frm);
   }
-
 
   fok = true;
 
 end:
 
-  if ( !fok && ctx ) {
+  if ( !fok && ff ) {
 
-    while ( (frm = ccfifo_ppop(&ctx->p)) ) {
+    while ( (frm = ccfifo_ppop(&ff->p)) ) {
       av_free(frm);
     }
 
-    ccfifo_cleanup(&ctx->p);
-    ccfifo_cleanup(&ctx->q);
+    ccfifo_cleanup(&ff->p);
+    ccfifo_cleanup(&ff->q);
 
-    av_free(ctx->server);
-    av_free(ctx->format);
-    av_free(ctx->codec);
-    av_free(ctx->ffopts);
+    av_free(ff->server);
+    av_free(ff->format);
+    av_free(ff->video_codec);
+    av_free(ff->ffopts);
 
-    av_free(ctx), ctx = NULL;
+    av_free(ff), ff = NULL;
   }
 
-  return ctx;
+  return ff;
 }
 
 
-void destroy_output_stream(ff_output_stream * ctx)
+void destroy_output_stream(ff_output_stream * ff)
 {
-  if ( ctx ) {
+  if ( ff ) {
 
     struct frm * frm;
 
-    if ( ctx->pid ) {
-      pthread_join(ctx->pid, NULL);
+    if ( ff->pid ) {
+      pthread_join(ff->pid, NULL);
     }
 
-    while ( (frm = ccfifo_ppop(&ctx->p)) ) {
+    while ( (frm = ccfifo_ppop(&ff->p)) ) {
       av_free(frm);
     }
 
-    while ( (frm = ccfifo_ppop(&ctx->q)) ) {
+    while ( (frm = ccfifo_ppop(&ff->q)) ) {
       av_free(frm);
     }
 
-    ccfifo_cleanup(&ctx->p);
-    ccfifo_cleanup(&ctx->q);
+    ccfifo_cleanup(&ff->p);
+    ccfifo_cleanup(&ff->q);
 
-    av_free(ctx->server);
-    av_free(ctx->format);
-    av_free(ctx->codec);
-    av_free(ctx->ffopts);
-    av_free(ctx);
+    av_free(ff->server);
+    av_free(ff->format);
+    av_free(ff->video_codec);
+    av_free(ff->ffopts);
+    av_free(ff);
   }
 }
 
 
-
-bool start_output_stream(ff_output_stream * ctx)
+bool start_output_stream(ff_output_stream * ff)
 {
   int status = -1;
 
-  ctx_lock(ctx);
+  ctx_lock(ff);
 
-  if ( ctx->pid != 0 || ctx->state != ff_output_stream_idle ) {
+  if ( ff->pid != 0 || ff->state != ff_output_stream_idle ) {
     errno = EALREADY;
   }
   else {
-    set_stream_state(ctx, ff_output_stream_starting, 0, false);
+    set_stream_state(ff, ff_output_stream_starting, 0, false);
 
-    if ( (status = pthread_create(&ctx->pid, NULL, output_stream_thread, ctx)) ) {
-      set_stream_state(ctx, ff_output_stream_idle, errno = status, false);
+    if ( (status = pthread_create(&ff->pid, NULL, output_stream_thread, ff)) ) {
+      set_stream_state(ff, ff_output_stream_idle, errno = status, false);
     }
   }
 
-  ctx_unlock(ctx);
+  ctx_unlock(ff);
 
   return status == 0;
 }
 
 
-void stop_output_stream(ff_output_stream * ctx)
+void stop_output_stream(ff_output_stream * ff)
 {
   PDBG("ENTER");
 
-  ctx_lock(ctx);
+  ctx_lock(ff);
 
-  ctx->interrupted = true;
+  ff->interrupted = true;
 
-  while ( ctx->state != ff_output_stream_idle ) {
+  while ( ff->state != ff_output_stream_idle ) {
     PDBG("WAIT STATE");
-    ctx_signal(ctx);
-    ctx_wait(ctx, -1);
+    ctx_signal(ff);
+    ctx_wait(ff, -1);
   }
 
-  ctx_unlock(ctx);
+  ctx_unlock(ff);
 
   PDBG("LEAVE");
 }
@@ -712,68 +1014,116 @@ ff_output_stream_state get_output_stream_state(const ff_output_stream * ctx)
   return ctx->state;
 }
 
-void * get_output_stream_cookie(const ff_output_stream * ctx)
+void * get_output_stream_cookie(const ff_output_stream * ff)
 {
-  return ctx->cookie;
+  return ff->cookie;
 }
 
-size_t get_output_frame_data_size(const ff_output_stream * ctx)
+size_t get_video_frame_data_size(const ff_output_stream * ff)
 {
-  return FRAME_DATA_SIZE(ctx->cx, ctx->cy);
+  return FRAME_DATA_SIZE(ff->cx, ff->cy);
 }
 
-struct frm * pop_output_frame(ff_output_stream * ctx)
+struct frm * pop_video_frame(ff_output_stream * ctx)
 {
-  struct frm * frm;
+  struct frm * frm = NULL;
 
   ctx_lock(ctx);
 
   ++ctx->stats.framesRead;
 
-  frm = ccfifo_ppop(&ctx->p);
+  if ( ctx->state == ff_output_stream_established && ccfifo_size(&ctx->p) >= VIDEO_DROP_FIFO_THRESHOLD ) {
+    frm = ccfifo_ppop(&ctx->p);
+  }
 
   ctx_unlock(ctx);
   return frm;
 }
 
-void push_output_frame(ff_output_stream * ctx, struct frm * frm)
+void push_video_frame(ff_output_stream * ff, struct frm * frm)
 {
-  ctx_lock(ctx);
+  frm->type = frm_type_video;
+  frm->pts = ffmpeg_gettime_ms();
 
-  if ( !ctx->firstpts ) {
-    ctx->firstpts = frm->pts;
+  ctx_lock(ff);
+
+  if ( !ff->firstpts ) {
+    ff->firstpts = frm->pts;
   }
 
-  frm->pts -= ctx->firstpts;
-  ccfifo_ppush(&ctx->q, frm);
+  frm->pts -= ff->firstpts;
+  frm->size = FRAME_DATA_SIZE(ff->cx, ff->cy);
+  ccfifo_ppush(&ff->q, frm);
 
-  ctx_signal(ctx);
-  ctx_unlock(ctx);
+  ctx_signal(ff);
+  ctx_unlock(ff);
 }
 
 
-const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ctx)
+const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ff)
 {
   int64_t t = ffmpeg_gettime_ms();
 
-  ctx_lock(ctx);
+  ctx_lock(ff);
 
-  ctx->stats.bytesRead = ctx->stats.framesRead * FRAME_DATA_SIZE(ctx->cx, ctx->cy);
+  ff->stats.bytesRead = ff->stats.framesRead * FRAME_DATA_SIZE(ff->cx, ff->cy);
 
-  if ( t > ctx->stats.timer ) {
-    ctx->stats.inputFps = (ctx->stats.framesRead - ctx->stats.inputFpsMark) * 1000LL / (t - ctx->stats.timer);
-    ctx->stats.inputBitrate = (ctx->stats.bytesRead - ctx->stats.inputBitrateMark) * 8000LL / (t - ctx->stats.timer);
-    ctx->stats.outputFps = (ctx->stats.framesSent - ctx->stats.outputFpsMark) * 1000LL / (t - ctx->stats.timer);
-    ctx->stats.outputBitrate = (ctx->stats.bytesSent - ctx->stats.outputBitrateMark) * 8000LL / (t - ctx->stats.timer);
+  if ( t > ff->stats.timer ) {
+    ff->stats.inputFps = (ff->stats.framesRead - ff->stats.inputFpsMark) * 1000LL / (t - ff->stats.timer);
+    ff->stats.inputBitrate = (ff->stats.bytesRead - ff->stats.inputBitrateMark) * 8000LL / (t - ff->stats.timer);
+    ff->stats.outputFps = (ff->stats.framesSent - ff->stats.outputFpsMark) * 1000LL / (t - ff->stats.timer);
+    ff->stats.outputBitrate = (ff->stats.bytesSent - ff->stats.outputBitrateMark) * 8000LL / (t - ff->stats.timer);
   }
 
-  ctx->stats.timer = t;
-  ctx->stats.inputFpsMark = ctx->stats.framesRead;
-  ctx->stats.inputBitrateMark = ctx->stats.bytesRead;
-  ctx->stats.outputFpsMark = ctx->stats.framesSent;
-  ctx->stats.outputBitrateMark = ctx->stats.bytesSent;
+  ff->stats.timer = t;
+  ff->stats.inputFpsMark = ff->stats.framesRead;
+  ff->stats.inputBitrateMark = ff->stats.bytesRead;
+  ff->stats.outputFpsMark = ff->stats.framesSent;
+  ff->stats.outputBitrateMark = ff->stats.bytesSent;
 
-  ctx_unlock(ctx);
+  ctx_unlock(ff);
 
-  return &ctx->stats;
+  return &ff->stats;
 }
+
+
+
+
+
+
+
+
+////////////
+
+static void audio_capture_callback(void * cookie, void * bfr, size_t size)
+{
+  (void)(size);
+
+  ff_output_stream * ff = cookie;
+  struct frm * frm = NULL;
+
+  ctx_lock(ff);
+
+  if ( !ff->interrupted ) {
+
+    ff->atime += ff->audio_samples_per_buffer;
+    if ( !ff->firstpts ) {
+      ff->firstpts = ffmpeg_gettime_ms();
+    }
+
+    if ( ff->state == ff_output_stream_established && (frm = ccfifo_ppop(&ff->p)) ) {
+
+      frm->type = frm_type_audio;
+      frm->pts = ff->atime;
+      memcpy(frm->data, bfr, frm->size = size);
+      ccfifo_ppush(&ff->q, frm);
+      ctx_signal(ff);
+    }
+
+    if ( opensless_audio_capture_enqueue(ff->capdev, bfr, ff->audio_bytes_per_buffer) != 0 ) {
+      PERROR("BUG BUG BUG: audio_capture_enqueue() fails");
+    }
+  }
+  ctx_unlock(ff);
+}
+

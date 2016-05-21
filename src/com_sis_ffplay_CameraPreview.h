@@ -132,10 +132,10 @@ extern "C" {
 /*
  * Class:     com_sis_ffplay_CameraPreview
  * Method:    start_stream
- * Signature: (IIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;IIILjava/lang/String;)J
+ * Signature: (IIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;III)J
  */
 JNIEXPORT jlong JNICALL Java_com_sis_ffplay_CameraPreview_start_1stream
-  (JNIEnv *, jobject, jint, jint, jint, jstring, jstring, jstring, jint, jint, jint, jstring);
+  (JNIEnv *, jobject, jint, jint, jint, jstring, jstring, jstring, jstring, jstring, jint, jint, jint);
 
 /*
  * Class:     com_sis_ffplay_CameraPreview

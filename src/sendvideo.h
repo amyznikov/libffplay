@@ -39,9 +39,17 @@ enum ff_output_stream_state {
 // Fixme: Only NV21 assumed
 #define FRAME_DATA_SIZE(cx,cy)  ((cx) * (cy) * 12 / 8)
 
+
+enum {
+  frm_type_video,
+  frm_type_audio
+};
+
 struct frm {
   int64_t pts;
-  uint8_t data[/*FRAME_DATA_SIZE*/];
+  uint32_t size;
+  uint32_t type;
+  uint8_t data[];
 };
 
 
@@ -57,14 +65,15 @@ typedef
 struct create_output_stream_args {
   const char * server;
   const char * format;
-  const char * codec;
   const char * ffopts;
+  const char * cvcodec;
+  const char * cacodec;
   const ff_output_stream_event_callback * events_callback;
   void * cookie;
   int cx, cy, pxfmt;
-  int quality;
+  int cvquality;
+  int caquality;
   int gopsize;
-  int bitrate;
 } create_output_stream_args;
 
 
@@ -76,10 +85,10 @@ void destroy_output_stream(ff_output_stream * ctx);
 
 ff_output_stream_state get_output_stream_state(const ff_output_stream * ctx);
 void * get_output_stream_cookie(const ff_output_stream * ctx);
-size_t get_output_frame_data_size(const ff_output_stream * ctx);
+size_t get_video_frame_data_size(const ff_output_stream * ctx);
 
-struct frm * pop_output_frame(ff_output_stream * ctx);
-void push_output_frame(ff_output_stream * ctx, struct frm * frm);
+struct frm * pop_video_frame(ff_output_stream * ctx);
+void push_video_frame(ff_output_stream * ctx, struct frm * frm);
 
 
 struct output_stream_stats {
