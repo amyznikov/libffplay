@@ -11,6 +11,8 @@ SHELL = /bin/bash
 LIBNAME        = ffplay
 VERSION        = 0.0.0
 
+all: lib
+
 APP_ABI        = armeabi-v7a
 APP_PLATFORM   = android-15
 NDK_TOOLCHAIN_VERSION = 4.9
@@ -80,7 +82,7 @@ $(docdir)           : ; mkdir -p $@
 
 
 
-all: lib
+
 
 
 lib: Makefile jni/Android.mk jni/Application.mk \
