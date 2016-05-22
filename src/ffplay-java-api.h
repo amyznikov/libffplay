@@ -39,6 +39,11 @@ jobject NewObjectV(JNIEnv*, jclass, jmethodID, va_list);
 jobjectArray NewObjectArray(JNIEnv*, jsize, jclass, jobject);
 void  SetObjectArrayElement(JNIEnv*, jobjectArray, jsize, jobject);
 
+jobjectArray NewStringArray(JNIEnv*, jsize);
+jintArray NewIntArray(JNIEnv * env, jsize size);
+void SetIntArrayRegion(JNIEnv* env, jintArray array, jsize start_index, jsize size, const jint values[]);
+
+
 jstring jString(JNIEnv * env, const char * cstring);
 const char * cString(JNIEnv * env, jstring jstr);
 void freeCString(JNIEnv * env, jstring jstr, const char * cstr);
@@ -60,6 +65,10 @@ jlong GetLongField(JNIEnv* env, jobject obj, jfieldID id);
 void SetLongField(JNIEnv* env, jobject obj, jfieldID id, jlong v);
 jobject GetObjectField(JNIEnv * env, jobject obj, jfieldID id);
 void SetObjectField(JNIEnv * env, jobject obj, jfieldID id, jobject v);
+jboolean  GetBooleanField(JNIEnv * env, jobject obj, jfieldID id);
+void SetBooleanField(JNIEnv* env, jobject obj, jfieldID id, jboolean v);
+jdouble GetDoubleField(JNIEnv * env, jobject obj, jfieldID id);
+void SetDoubleField(JNIEnv* env, jobject obj, jfieldID id, jdouble v);
 
 
 void call_void_method(JNIEnv * env, jobject obj, jmethodID method);

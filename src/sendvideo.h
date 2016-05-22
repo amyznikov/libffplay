@@ -71,8 +71,16 @@ struct create_output_stream_args {
   const ff_output_stream_event_callback * events_callback;
   void * cookie;
   int cx, cy, pxfmt;
+
   int cvquality;
   int caquality;
+
+  int cvbitrate;
+  int cabitrate;
+
+  int cvbufs;
+  int cabufs;
+
   int gopsize;
 } create_output_stream_args;
 
@@ -95,14 +103,26 @@ struct output_stream_stats {
   int64_t timer;
   int64_t bytesRead, bytesSent;
   int64_t framesRead, framesSent;
-  int64_t inputFpsMark, outputFpsMark;
   int64_t inputBitrateMark, outputBitrateMark;
-  int inputFps, outputFps;
+  int64_t inputFpsMark, outputFpsMark;
+  double  inputFps, outputFps;
   int inputBitrate, outputBitrate;
 };
 
 
 const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ctx);
+
+
+struct codec_opts {
+  const char * name;
+  enum codec_type { codec_type_audio, codec_type_video } type;
+  const int * supported_quality_values;
+  const int * supported_bitrates;
+  const int * supported_gop_sizes;
+};
+
+
+const struct codec_opts * get_supported_codecs(void);
 
 #ifdef __cplusplus
 }

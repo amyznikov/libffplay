@@ -101,6 +101,21 @@ void SetObjectArrayElement(JNIEnv* env, jobjectArray array, jsize index, jobject
   return (*env)->SetObjectArrayElement(env, array, index, v);
 }
 
+jobjectArray NewStringArray(JNIEnv* env, jsize size)
+{
+  return NewObjectArray(env, size, FindClass(env, "java/lang/String"), NULL);
+}
+
+jintArray NewIntArray(JNIEnv * env, jsize size)
+{
+  return (*env)->NewIntArray(env, size);
+}
+
+void SetIntArrayRegion(JNIEnv* env, jintArray array, jsize start_index, jsize size, const jint values[])
+{
+  return (*env)->SetIntArrayRegion(env, array, start_index, size, values);
+}
+
 jstring jString(JNIEnv * env, const char * cstring)
 {
   return cstring ? (*env)->NewStringUTF(env, cstring) : NULL;
@@ -174,6 +189,17 @@ void SetLongField(JNIEnv* env, jobject obj, jfieldID id, jlong v)
   (*env)->SetLongField(env, obj, id, v);
 }
 
+jdouble GetDoubleField(JNIEnv * env, jobject obj, jfieldID id)
+{
+  return (*env)->GetDoubleField(env, obj, id);
+}
+
+void SetDoubleField(JNIEnv* env, jobject obj, jfieldID id, jdouble v)
+{
+  (*env)->SetDoubleField(env, obj, id, v);
+}
+
+
 jobject GetObjectField(JNIEnv * env, jobject obj, jfieldID id)
 {
   return (*env)->GetObjectField(env, obj, id);
@@ -183,6 +209,17 @@ void SetObjectField(JNIEnv * env, jobject obj, jfieldID id, jobject v)
 {
   (*env)->SetObjectField(env, obj, id, v);
 }
+
+jboolean GetBooleanField(JNIEnv * env, jobject obj, jfieldID id)
+{
+  return (*env)->GetBooleanField(env, obj, id);
+}
+
+void SetBooleanField(JNIEnv* env, jobject obj, jfieldID id, jboolean v)
+{
+  (*env)->SetBooleanField(env, obj, id, v);
+}
+
 
 void call_void_method(JNIEnv * env, jobject obj, jmethodID method)
 {

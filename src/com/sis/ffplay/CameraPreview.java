@@ -76,23 +76,15 @@ public class CameraPreview extends SurfaceView
     public void onStreamStateChaged(int state, int reason);
   }
   
-  public static class StreamOptions {
-    public String format;
-    public String ffopts;
-    public String vcodec;
-    public String acodec;
-    public int vquality;
-    public int aquality;
-    public int gopsize;
-  }
-
   public static class StreamStatus {
+    public int state;
     public long framesRead, framesSent;
     public long bytesRead, bytesSent;
-    public int inputFps, outputFps;
     public int inputBitrate, outputBitrate;
-    public int state;
+    public double inputFps, outputFps;
   }
+  
+  
   
     
   public CameraPreview(Context context) {
@@ -219,7 +211,24 @@ public class CameraPreview extends SurfaceView
   }
   
 
-  public int startStream(String server, StreamOptions opts) {
+  public static class StreamOptions {
+    public String server;
+    public String format;
+    public String ffopts;
+    
+    public String vCodecName;
+    public int vQuality;
+    public int vGopSize;
+    public int vBitRate;
+    public int vBufferSize;
+    
+    public String aCodecName;
+    public int aQuality;
+    public int aBitRate;
+    public int aBufferSize;
+  }
+  
+  public int startStream(StreamOptions opts) {
     
     int status = KERR_NONE;
 
@@ -233,8 +242,8 @@ public class CameraPreview extends SurfaceView
     }
     
     log.d(TAG, "startStream()");
-    if ((status = startNativeStream(server, opts)) == KERR_NONE) {
-      state_ = STATE_STREAMING;
+    if ((status = startNativeStream(opts)) == KERR_NONE) {
+      state_ = STATE_STREAMING;  // fixme: race condition
       emitStreamStarted();
     }
     
@@ -267,6 +276,30 @@ public class CameraPreview extends SurfaceView
     case KERR_START_STREAM_FAILS: return "START_STREAM_FAILS";
     }
     return geterrmsg(status); 
+  }
+  
+
+  
+  public static class CodecOpts {
+    public int[] QualityValues;
+    public int[] GopSizes;
+    public int[] BitRates;
+  }
+
+  public static String[] getSupportedStreamFormats()  {
+    return get_supported_stream_formats();
+  }
+  
+  public static String[] getSupportedVideoCodecs()  {
+    return get_supported_video_codecs();
+  }
+
+  public static String[] getSupportedAudioCodecs()  {
+    return get_supported_audio_codecs();
+  }
+  
+  public static CodecOpts getSupportedCodecOptions(String codecName) {
+    return get_supported_codec_options(codecName);
   }
   
   //////////////////////////////////////////////////////////////////////
@@ -501,11 +534,10 @@ public class CameraPreview extends SurfaceView
  
   //////////////////////////////////////////////////////////////////////
 
-  private native long start_stream(int cx, int cy, int pixfmt, String server, String format, String ffopts, String vcodec, String acodec, int vquality, int aquality, int gopsize);
-  private int startNativeStream(String server, StreamOptions opts) {
+  private native long start_stream(int cx, int cy, int pixfmt, StreamOptions opts);
+  private int startNativeStream(StreamOptions opts) {
     Camera.Size s = parameters.getPreviewSize();
-    nativeStream_ = start_stream(s.width, s.height, parameters.getPreviewFormat(), server, opts.format, opts.ffopts, 
-        opts.vcodec, opts.acodec, opts.vquality, opts.aquality, opts.gopsize);
+    nativeStream_ = start_stream(s.width, s.height, parameters.getPreviewFormat(), opts);
     return nativeStream_ == 0 ? KERR_START_STREAM_FAILS : KERR_NONE;
   }
 
@@ -535,4 +567,9 @@ public class CameraPreview extends SurfaceView
   }
 
   private static native String geterrmsg(int status);
+  private static native String[] get_supported_stream_formats();
+  private static native String[] get_supported_video_codecs();
+  private static native String[] get_supported_audio_codecs(); 
+  private static native CodecOpts get_supported_codec_options(String codecName);
+  
 }

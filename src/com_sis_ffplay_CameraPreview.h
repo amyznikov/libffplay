@@ -132,10 +132,10 @@ extern "C" {
 /*
  * Class:     com_sis_ffplay_CameraPreview
  * Method:    start_stream
- * Signature: (IIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;III)J
+ * Signature: (IIILcom/sis/ffplay/CameraPreview/StreamOptions;)J
  */
 JNIEXPORT jlong JNICALL Java_com_sis_ffplay_CameraPreview_start_1stream
-  (JNIEnv *, jobject, jint, jint, jint, jstring, jstring, jstring, jstring, jstring, jint, jint, jint);
+  (JNIEnv *, jobject, jint, jint, jint, jobject);
 
 /*
  * Class:     com_sis_ffplay_CameraPreview
@@ -169,6 +169,38 @@ JNIEXPORT jboolean JNICALL Java_com_sis_ffplay_CameraPreview_get_1stream_1status
 JNIEXPORT jstring JNICALL Java_com_sis_ffplay_CameraPreview_geterrmsg
   (JNIEnv *, jclass, jint);
 
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    get_supported_stream_formats
+ * Signature: ()[Ljava/lang/String;
+ */
+JNIEXPORT jobjectArray JNICALL Java_com_sis_ffplay_CameraPreview_get_1supported_1stream_1formats
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    get_supported_video_codecs
+ * Signature: ()[Ljava/lang/String;
+ */
+JNIEXPORT jobjectArray JNICALL Java_com_sis_ffplay_CameraPreview_get_1supported_1video_1codecs
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    get_supported_audio_codecs
+ * Signature: ()[Ljava/lang/String;
+ */
+JNIEXPORT jobjectArray JNICALL Java_com_sis_ffplay_CameraPreview_get_1supported_1audio_1codecs
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     com_sis_ffplay_CameraPreview
+ * Method:    get_supported_codec_options
+ * Signature: (Ljava/lang/String;)Lcom/sis/ffplay/CameraPreview/CodecOpts;
+ */
+JNIEXPORT jobject JNICALL Java_com_sis_ffplay_CameraPreview_get_1supported_1codec_1options
+  (JNIEnv *, jclass, jstring);
+
 #ifdef __cplusplus
 }
 #endif
@@ -184,10 +216,10 @@ extern "C" {
 }
 #endif
 #endif
-/* Header for class com_sis_ffplay_CameraPreview_StreamStatus */
+/* Header for class com_sis_ffplay_CameraPreview_CodecOpts */
 
-#ifndef _Included_com_sis_ffplay_CameraPreview_StreamStatus
-#define _Included_com_sis_ffplay_CameraPreview_StreamStatus
+#ifndef _Included_com_sis_ffplay_CameraPreview_CodecOpts
+#define _Included_com_sis_ffplay_CameraPreview_CodecOpts
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -199,6 +231,17 @@ extern "C" {
 
 #ifndef _Included_com_sis_ffplay_CameraPreview_StreamOptions
 #define _Included_com_sis_ffplay_CameraPreview_StreamOptions
+#ifdef __cplusplus
+extern "C" {
+#endif
+#ifdef __cplusplus
+}
+#endif
+#endif
+/* Header for class com_sis_ffplay_CameraPreview_StreamStatus */
+
+#ifndef _Included_com_sis_ffplay_CameraPreview_StreamStatus
+#define _Included_com_sis_ffplay_CameraPreview_StreamStatus
 #ifdef __cplusplus
 extern "C" {
 #endif
