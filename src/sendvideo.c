@@ -15,12 +15,14 @@
 
 #define AUDIO_CAPTURE_BUFFERS     4
 #define AUDIO_SAMPLE_SIZE         2
-#define AUDIO_SAMPLE_RATE         16000    /* [Hz] */
+
+//#define AUDIO_SAMPLE_RATE         16000    /* [Hz] */
 //#define AUDIO_SAMPLE_RATE         8000    /* [Hz] */
 #define AUDIO_SAMPLE_FMT          AV_SAMPLE_FMT_S16P
 
-#define OUTPUT_FIFO_SIZE            16
-#define VIDEO_DROP_FIFO_THRESHOLD   8
+#define VIDEO_POLL_SIZE           3
+#define AUDIO_POLL_SIZE           150
+#define OUTPUT_FIFO_SIZE          (VIDEO_POLL_SIZE+AUDIO_POLL_SIZE)
 
 #define VIDEO_CODEC_TIME_BASE     (AVRational){1,1000}
 
@@ -37,6 +39,7 @@ struct ff_output_stream {
   int gopsize;
 
   char * audio_codec;
+  int audio_sample_rate;
   size_t audio_samples_per_buffer;
   size_t audio_bytes_per_buffer;
   int aquality;
@@ -53,7 +56,7 @@ struct ff_output_stream {
 
   int64_t firstpts;
   int64_t atime;
-  struct ccfifo p, q;
+  struct ccfifo ap, vp, q;
 
   ff_output_stream_state state;
   int status, reason;
@@ -286,6 +289,7 @@ static int create_audio_codec(AVCodecContext ** cctx, ff_output_stream * ff, con
   AVDictionary * codec_opts = NULL;
   AVDictionaryEntry * e = NULL;
   int q;
+  int bitrate = 0;
 
   int status = 0;
 
@@ -314,6 +318,8 @@ static int create_audio_codec(AVCodecContext ** cctx, ff_output_stream * ff, con
 
   if ( strcmp(codec->name, "libmp3lame") == 0 ) {
 
+    ff->audio_sample_rate = 16000;
+
     // see https://trac.ffmpeg.org/wiki/Encode/MP3
     if ( !av_dict_get(codec_opts, "q", NULL, 0) ) {
 
@@ -327,6 +333,13 @@ static int create_audio_codec(AVCodecContext ** cctx, ff_output_stream * ff, con
       av_dict_set_int(&codec_opts, "q", q, 0);
     }
   }
+  else if ( strcmp(codec->name, "libopencore_amrnb") == 0 ) {
+    ff->audio_sample_rate = 8000;
+    bitrate = 4750;
+  }
+  else {
+    ff->audio_sample_rate = 8000;
+  }
 
 
   if ( !(*cctx = avcodec_alloc_context3(codec)) ) {
@@ -337,11 +350,13 @@ static int create_audio_codec(AVCodecContext ** cctx, ff_output_stream * ff, con
 
   ///
 
-  (*cctx)->time_base = (AVRational ) { 1, AUDIO_SAMPLE_RATE };
-  (*cctx)->sample_rate = AUDIO_SAMPLE_RATE;
+  (*cctx)->time_base = (AVRational ) { 1, ff->audio_sample_rate };
+  (*cctx)->sample_rate = ff->audio_sample_rate;
   (*cctx)->sample_fmt = AUDIO_SAMPLE_FMT;
   (*cctx)->channels = 1;
   (*cctx)->channel_layout = AV_CH_LAYOUT_MONO;
+  (*cctx)->bit_rate = bitrate;
+
 
   if ( (status = avcodec_open2(*cctx, codec, &codec_opts)) ) {
     PDBG("avcodec_open2('%s') fails: %s", codec->name, av_err2str(status));
@@ -350,14 +365,14 @@ static int create_audio_codec(AVCodecContext ** cctx, ff_output_stream * ff, con
 
   if ( (*cctx)->frame_size ) {
     ff->audio_samples_per_buffer = (*cctx)->frame_size;
+    PDBG("FRAME_SIZE: AUDIO_SAMPLES_PER_BUFFER=%zu", ff->audio_samples_per_buffer);
   }
   else {
     ff->audio_samples_per_buffer = 320;
+    PDBG("MANUAL: AUDIO_SAMPLES_PER_BUFFER=%zu", ff->audio_samples_per_buffer);
   }
 
   ff->audio_bytes_per_buffer = ff->audio_samples_per_buffer * AUDIO_SAMPLE_SIZE; // fixme here
-
-  PDBG("USING AUDIO_SAMPLES_PER_BUFFER=%zu", ff->audio_samples_per_buffer);
 
 end: ;
 
@@ -405,8 +420,9 @@ static bool start_audio_capture(ff_output_stream * ff)
     goto end;
   }
 
+
   /* create capture device */
-  status = opensless_audio_capture_create(&ff->capdev, ff, audio_capture_callback, AUDIO_CAPTURE_BUFFERS, AUDIO_SAMPLE_RATE);
+  status = opensless_audio_capture_create(&ff->capdev, ff, audio_capture_callback, AUDIO_CAPTURE_BUFFERS, ff->audio_sample_rate);
   if ( status ) {
     PERROR("audio_capture_create() fails: status=0x%0X", status);
     goto end;
@@ -428,9 +444,12 @@ static bool start_audio_capture(ff_output_stream * ff)
   }
 
 end:
+
   if ( status ) {
+
     av_free(ff->capbufs);
     opensless_audio_capture_destroy(&ff->capdev);
+
     opensless_audio_shutdown();
   }
 
@@ -443,9 +462,45 @@ static void stop_audio_capture(ff_output_stream * ff)
     opensless_audio_capture_stop(ff->capdev);
     opensless_audio_capture_destroy(&ff->capdev);
     opensless_audio_shutdown();
-    av_free(ff->capbufs);
-    ff->capbufs = NULL;
   }
+
+  av_free(ff->capbufs);
+  ff->capbufs = NULL;
+}
+
+
+static int create_frame_poll(struct ccfifo * fifo, size_t count, size_t datasize)
+{
+  struct frm * frm;
+  size_t frmsize;
+  int status = 0;
+
+  if ( !ccfifo_init(fifo, count, sizeof(struct frm*)) ) {
+    PERROR("ccfifo_init() fails");
+    status = AVERROR(ENOMEM);
+    goto end;
+  }
+
+  frmsize = offsetof(struct frm, data) + datasize;
+  for ( uint i = 0; i < count; ++i ) {
+    if ( !(frm = av_mallocz(frmsize)) ) {
+      PERROR("av_mallocz( frame: size=%zu) fails", frmsize);
+      status = AVERROR(ENOMEM);
+      goto end;
+    }
+    ccfifo_ppush(fifo, frm);
+  }
+
+end: ;
+
+  if ( status ) {
+    while ( (frm = ccfifo_ppop(fifo)) ) {
+      av_free(frm);
+    }
+    ccfifo_cleanup(fifo);
+  }
+
+  return status;
 }
 
 
@@ -517,43 +572,67 @@ static int output_loop(struct ff_output_stream * ff)
   }
 
 
-
   /// Open codecs
-  if ( (status = create_video_codec(&vcodec, ff, opts)) ) {
-    PERROR("create_video_codec() fails: %s", av_err2str(status));
-    goto end;
-  }
 
-  if ( ff->audio_codec && *ff->audio_codec && (status = create_audio_codec(&acodec, ff, opts)) ) {
-    PERROR("create_audio_codec() fails: %s", av_err2str(status));
-    goto end;
-  }
-
-
-
-  /// Alloc frame buffers
-  PDBG("create input_video_frame: %s %dx%d", av_get_pix_fmt_name(ff->input_pixfmt), ff->cx, ff->cy );
-  if ( (status = ffmpeg_create_video_frame(&input_video_frame, ff->input_pixfmt, ff->cx, ff->cy, 0)) ) {
-    PERROR("ffmpeg_create_video_frame(input_frame) fails: %s", av_err2str(status));
-    goto end;
-  }
-
-  PDBG("create output_video_frame: %s %dx%d", av_get_pix_fmt_name(vcodec->pix_fmt), vcodec->width, vcodec->height );
-  if ( (status = ffmpeg_create_video_frame(&output_video_frame, vcodec->pix_fmt, vcodec->width, vcodec->height, 32)) ) {
-    PERROR("ffmpeg_create_video_frame(output_frame) fails: %s", av_err2str(status));
-    goto end;
-  }
-
-  if ( !(sws = sws_getContext(cx, cy, ff->input_pixfmt, vcodec->width, vcodec->height, vcodec->pix_fmt, SWS_FAST_BILINEAR, NULL, NULL, NULL)) ) {
-    PERROR("sws_getContext() fails");
+  if ( !(ccfifo_init(&ff->q, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
+    PERROR("ccfifo_init(frame queue) fails");
+    status = AVERROR(ENOMEM);
     goto end;
   }
 
 
-  if ( acodec ) {
-    PDBG("C ffmpeg_create_audio_frame(): %s %d Hz %d samples", av_get_sample_fmt_name(acodec->sample_fmt), acodec->sample_rate, ff->audio_samples_per_buffer );
-    if ( (status = ffmpeg_create_audio_frame(&output_audio_frame, acodec->sample_fmt, acodec->sample_rate,
-        ff->audio_samples_per_buffer, 1, AV_CH_LAYOUT_MONO)) ) {
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  if ( ff->video_codec && *ff->video_codec ) {
+
+    if ( (status = create_video_codec(&vcodec, ff, opts)) ) {
+      PERROR("create_video_codec() fails: %s", av_err2str(status));
+      goto end;
+    }
+
+    PDBG("VIDEO: %s %s %dx%d", vcodec->codec->name, av_get_pix_fmt_name(ff->input_pixfmt), ff->cx, ff->cy );
+
+    if ( (status = create_frame_poll(&ff->vp, VIDEO_POLL_SIZE, FRAME_DATA_SIZE(ff->cx, ff->cy))) ) {
+      PERROR("create_frame_poll(video) fails: %s", av_err2str(status));
+      goto end;
+    }
+
+    /// Alloc frame buffers
+    if ( (status = ffmpeg_create_video_frame(&input_video_frame, ff->input_pixfmt, ff->cx, ff->cy, 0)) ) {
+      PERROR("ffmpeg_create_video_frame(input_frame) fails: %s", av_err2str(status));
+      goto end;
+    }
+
+    PDBG("create output_video_frame: %s %dx%d", av_get_pix_fmt_name(vcodec->pix_fmt), vcodec->width, vcodec->height );
+    if ( (status = ffmpeg_create_video_frame(&output_video_frame, vcodec->pix_fmt, vcodec->width, vcodec->height, 32)) ) {
+      PERROR("ffmpeg_create_video_frame(output_frame) fails: %s", av_err2str(status));
+      goto end;
+    }
+
+    if ( !(sws = sws_getContext(cx, cy, ff->input_pixfmt, vcodec->width, vcodec->height, vcodec->pix_fmt, SWS_FAST_BILINEAR, NULL, NULL, NULL)) ) {
+      PERROR("sws_getContext() fails");
+      goto end;
+    }
+  }
+
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  if ( ff->audio_codec && *ff->audio_codec ) {
+
+    if ( (status = create_audio_codec(&acodec, ff, opts)) ) {
+      PERROR("create_audio_codec(%s) fails: %s", ff->audio_codec, av_err2str(status));
+      goto end;
+    }
+
+    PDBG("AUDIO: %s %s %d Hz %d samples", acodec->codec->name, av_get_sample_fmt_name(acodec->sample_fmt), acodec->sample_rate, ff->audio_samples_per_buffer );
+
+    if ( (status = create_frame_poll(&ff->ap, AUDIO_POLL_SIZE, ff->audio_bytes_per_buffer)) ) {
+      PERROR("create_frame_poll(audio) fails: %s", av_err2str(status));
+      goto end;
+    }
+
+    if ( (status = ffmpeg_create_audio_frame(&output_audio_frame, acodec->sample_fmt, acodec->sample_rate, ff->audio_samples_per_buffer, 1, AV_CH_LAYOUT_MONO)) ) {
       PERROR("ffmpeg_create_audio_frame() fails: %s", av_err2str(status));
       goto end;
     }
@@ -562,6 +641,11 @@ static int output_loop(struct ff_output_stream * ff)
       PERROR("start_audio_capture() fails. Audio disabled");
     }
   }
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
 
 
   /// Alloc output context
@@ -627,7 +711,14 @@ static int output_loop(struct ff_output_stream * ff)
     if ( ff->interrupted ) {
       status = AVERROR_EXIT;
       if ( frm ) {
-        ccfifo_ppush(&ff->p, frm);
+        switch ( frm->type ) {
+          case frm_type_audio :
+            ccfifo_ppush(&ff->ap, frm);
+          break;
+          case frm_type_video :
+            ccfifo_ppush(&ff->vp, frm);
+          break;
+        }
       }
       break;
     }
@@ -636,7 +727,7 @@ static int output_loop(struct ff_output_stream * ff)
 
     gotpkt = false;
 
-    switch (frm->type) {
+    switch ( frm->type ) {
 
       case frm_type_video: {
         stidx = 0;
@@ -681,7 +772,7 @@ static int output_loop(struct ff_output_stream * ff)
 //      {
 //        int64_t upts = av_rescale_ts(pkt.pts, os->time_base, (AVRational){1, 1000});
 //        int64_t udts = av_rescale_ts(pkt.dts, os->time_base, (AVRational){1, 1000});
-//        PDBG("av_write_frame(): st=%d pts=%s dts=%s ctb=%s stb=%s upts=%s udts=%s size=%d",strmidx,
+//        PDBG("av_write_frame(): st=%d pts=%s dts=%s ctb=%s stb=%s upts=%s udts=%s size=%d",stidx,
 //            av_ts2str(pkt.pts), av_ts2str(pkt.dts),
 //            av_tb2str(codec->time_base), av_tb2str(os->time_base),
 //            av_ts2str(upts), av_ts2str(udts),
@@ -714,7 +805,14 @@ static int output_loop(struct ff_output_stream * ff)
     ctx_lock(ff);
 
     if ( frm ) {
-      ccfifo_ppush(&ff->p, frm);
+      switch ( frm->type ) {
+        case frm_type_audio :
+          ccfifo_ppush(&ff->ap, frm);
+        break;
+        case frm_type_video :
+          ccfifo_ppush(&ff->vp, frm);
+        break;
+      }
     }
   }
 
@@ -739,6 +837,8 @@ end:
       }
     }
   }
+
+  ctx_lock(ff);
 
   av_frame_free(&output_audio_frame);
   av_frame_free(&output_video_frame);
@@ -770,8 +870,20 @@ end:
   av_dict_free(&opts);
 
   while ( (frm = ccfifo_ppop(&ff->q)) ) {
-    ccfifo_ppush(&ff->p, frm);
+    av_free(frm);
   }
+  while ( (frm = ccfifo_ppop(&ff->ap)) ) {
+    av_free(frm);
+  }
+  while ( (frm = ccfifo_ppop(&ff->vp)) ) {
+    av_free(frm);
+  }
+
+  ccfifo_cleanup(&ff->ap);
+  ccfifo_cleanup(&ff->vp);
+  ccfifo_cleanup(&ff->q);
+
+  ctx_unlock(ff);
 
   PDBG("LEAVE");
 
@@ -840,9 +952,6 @@ static void * output_stream_thread(void * arg)
 ff_output_stream * create_output_stream(const create_output_stream_args * args)
 {
   ff_output_stream * ff = NULL;
-  struct frm * frm;
-  size_t frmsize;
-  size_t frmdatasize;
 
   bool fok = false;
 
@@ -856,13 +965,6 @@ ff_output_stream * create_output_stream(const create_output_stream_args * args)
     goto end;
   }
 
-  if ( !(ccfifo_init(&ff->p, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
-    goto end;
-  }
-
-  if ( !(ccfifo_init(&ff->q, OUTPUT_FIFO_SIZE, sizeof(struct frm*))) ) {
-    goto end;
-  }
 
 
   ff->server = av_strdup(args->server);
@@ -880,7 +982,8 @@ ff_output_stream * create_output_stream(const create_output_stream_args * args)
   }
 
   if ( args->cacodec && *args->cacodec ) {
-    ff->audio_codec = av_strdup(args->cacodec);
+    //ff->audio_codec = av_strdup(args->cacodec);
+    ff->audio_codec = av_strdup("libopencore_amrnb");
   }
 
   if ( args->events_callback ) {
@@ -898,17 +1001,10 @@ ff_output_stream * create_output_stream(const create_output_stream_args * args)
   ff->state = ff_output_stream_idle;
   ff->status = 0;
 
-  if ( (frmdatasize = FRAME_DATA_SIZE(ff->cx, ff->cy)) < 2 * 1024 ) { // fixme: actually depends on max audio buffer size
-    frmdatasize = 2 * 1024;
-  }
 
-  frmsize = offsetof(struct frm, data) + frmdatasize;
-  for ( uint i = 0; i < OUTPUT_FIFO_SIZE; ++i ) {
-    if ( !(frm = av_mallocz(frmsize)) ) {
-      goto end;
-    }
-    ccfifo_ppush(&ff->p, frm);
-  }
+
+
+
 
   fok = true;
 
@@ -916,12 +1012,6 @@ end:
 
   if ( !fok && ff ) {
 
-    while ( (frm = ccfifo_ppop(&ff->p)) ) {
-      av_free(frm);
-    }
-
-    ccfifo_cleanup(&ff->p);
-    ccfifo_cleanup(&ff->q);
 
     av_free(ff->server);
     av_free(ff->format);
@@ -939,22 +1029,9 @@ void destroy_output_stream(ff_output_stream * ff)
 {
   if ( ff ) {
 
-    struct frm * frm;
-
     if ( ff->pid ) {
       pthread_join(ff->pid, NULL);
     }
-
-    while ( (frm = ccfifo_ppop(&ff->p)) ) {
-      av_free(frm);
-    }
-
-    while ( (frm = ccfifo_ppop(&ff->q)) ) {
-      av_free(frm);
-    }
-
-    ccfifo_cleanup(&ff->p);
-    ccfifo_cleanup(&ff->q);
 
     av_free(ff->server);
     av_free(ff->format);
@@ -1007,6 +1084,9 @@ void stop_output_stream(ff_output_stream * ff)
   PDBG("LEAVE");
 }
 
+
+
+
 ff_output_stream_state get_output_stream_state(const ff_output_stream * ctx)
 {
   return ctx->state;
@@ -1031,12 +1111,11 @@ struct frm * pop_video_frame(ff_output_stream * ff)
   ++ff->stats.framesRead;
 
   if ( ff->state == ff_output_stream_established ) {
-    if ( !ff->have_audio || ccfifo_size(&ff->p) >= VIDEO_DROP_FIFO_THRESHOLD ) {
-      frm = ccfifo_ppop(&ff->p);
-    }
+    frm = ccfifo_ppop(&ff->vp);
   }
 
   ctx_unlock(ff);
+
   return frm;
 }
 
@@ -1058,6 +1137,37 @@ void push_video_frame(ff_output_stream * ff, struct frm * frm)
   ctx_signal(ff);
   ctx_unlock(ff);
 }
+
+static void audio_capture_callback(void * cookie, void * bfr, size_t size)
+{
+  ff_output_stream * ff = cookie;
+  struct frm * frm = NULL;
+
+  ctx_lock(ff);
+
+  if ( !ff->interrupted ) {
+
+    ff->atime += ff->audio_samples_per_buffer;
+    if ( !ff->firstpts ) {
+      ff->firstpts = ffmpeg_gettime_ms();
+    }
+
+    if ( ff->state == ff_output_stream_established && (frm = ccfifo_ppop(&ff->ap)) ) {
+
+      frm->type = frm_type_audio;
+      frm->pts = ff->atime;
+      memcpy(frm->data, bfr, frm->size = size);
+      ccfifo_ppush(&ff->q, frm);
+      ctx_signal(ff);
+    }
+
+    if ( opensless_audio_capture_enqueue(ff->capdev, bfr, ff->audio_bytes_per_buffer) != 0 ) {
+      PERROR("BUG BUG BUG: audio_capture_enqueue() fails");
+    }
+  }
+  ctx_unlock(ff);
+}
+
 
 
 const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ff)
@@ -1094,36 +1204,4 @@ const struct output_stream_stats * get_output_stream_stats(ff_output_stream * ff
 
 
 ////////////
-
-static void audio_capture_callback(void * cookie, void * bfr, size_t size)
-{
-  (void)(size);
-
-  ff_output_stream * ff = cookie;
-  struct frm * frm = NULL;
-
-  ctx_lock(ff);
-
-  if ( !ff->interrupted ) {
-
-    ff->atime += ff->audio_samples_per_buffer;
-    if ( !ff->firstpts ) {
-      ff->firstpts = ffmpeg_gettime_ms();
-    }
-
-    if ( ff->state == ff_output_stream_established && (frm = ccfifo_ppop(&ff->p)) ) {
-
-      frm->type = frm_type_audio;
-      frm->pts = ff->atime;
-      memcpy(frm->data, bfr, frm->size = size);
-      ccfifo_ppush(&ff->q, frm);
-      ctx_signal(ff);
-    }
-
-    if ( opensless_audio_capture_enqueue(ff->capdev, bfr, ff->audio_bytes_per_buffer) != 0 ) {
-      PERROR("BUG BUG BUG: audio_capture_enqueue() fails");
-    }
-  }
-  ctx_unlock(ff);
-}
 

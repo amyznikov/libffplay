@@ -109,6 +109,7 @@ jni/Android.mk : Makefile
                              $$(SPECIALISDIR)/lib/libavutil.a \
                              $$(SPECIALISDIR)/lib/libx264.a \
                              $$(SPECIALISDIR)/lib/libmp3lame.a \
+                             $$(SPECIALISDIR)/lib/libopencore-amrnb.a \
                              -lOpenSLES -lz -lm -landroid -llog' >> $@
 	echo 'include $$(BUILD_SHARED_LIBRARY)' >> $@
 
