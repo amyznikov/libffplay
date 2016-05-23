@@ -4,3 +4,6 @@
 [submodule "external/modules/opencore-amr"]
 	path = external/modules/opencore-amr
 	url = git://git.code.sf.net/p/opencore-amr/code
+[submodule "external/modules/ffmpeg"]
+	path = external/modules/ffmpeg
+	url = https://git.ffmpeg.org/ffmpeg.git

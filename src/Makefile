@@ -92,7 +92,7 @@ jni/Android.mk : Makefile
 	echo 'include $$(CLEAR_VARS)' >> $@
 	echo 'LOCAL_MODULE    := $(LIBNAME)' >> $@
 	echo 'SPECIALISDIR    := $(ndk_root)/special-is' >> $@
-	echo 'EXTERNALDEPS    := $$(LOCAL_PATH)/../external' >> $@
+	echo 'EXTERNALDEPS    := $$(LOCAL_PATH)/../external/sysroot' >> $@
 	echo 'INCLUDES        += -I. -I$$(EXTERNALDEPS)/include' >> $@
 	echo 'LOCAL_SRC_FILES := $(SOURCES) $(JNISOURCES)' >> $@
 	echo "TARGET_CFLAGS   := $(TARGET_CFLAGS)" >> $@
