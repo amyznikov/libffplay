@@ -1,0 +1,12 @@
+#! /bin/bash
+
+platform=android-15
+prefix=${PWD}/sysroot
+
+cd modules || exit 1
+
+for m in x264 lame opencore-arm ffmpeg ; do
+    echo "Building $m..."
+	./build-$m-arm-linux-androideabi-gcc --platform=${platform} --prefix="${prefix}" || exit 1;
+	echo -e "Done\n\n"
+done

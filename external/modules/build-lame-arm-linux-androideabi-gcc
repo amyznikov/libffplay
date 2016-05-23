@@ -3,16 +3,30 @@
 platform=android-15
 prefix=$(dirname ${PWD})/sysroot
 
+for arg in "$@"
+do
+case $arg in
+    platform=*|--platform=*)
+    	platform="${arg#*=}"
+    	shift
+    	;;
+    	
+    prefix=*|--prefix=*)
+    	prefix="${arg#*=}"
+    	shift
+    	;;    
+    *)
+    	echo "Unknown option $arg specified" 1>& 2
+    	exit 1;
+    ;;
+esac
+done
+
+echo "platform=${platform}"
 echo "Library will installed into ${prefix}"
 mkdir -p "${prefix}" || exit 1
-  
 
 
-ndk_build=$(which ndk-build)
-if [[ "$ndk_build" == "" ]] ; then
- echo "Can not locate ndk-build in PATH. Is NDK installed correctly?";
- exit 1;
-fi
 
 ndkroot=$(dirname "$ndk_build")
 if [[ "$ndkroot" == "" ]] ; then
