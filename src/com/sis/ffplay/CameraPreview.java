@@ -136,8 +136,6 @@ public class CameraPreview extends SurfaceView
   
   public int startPreview(int cameraId, int cx, int cy) {
     
-    log.d(TAG, "ENTER startPreview()");
-    
     int status = KERR_NONE;
     
     if ( state_ != STATE_IDLE ) {
@@ -156,8 +154,6 @@ public class CameraPreview extends SurfaceView
     
     List<Camera.Size> supportedSizes = parameters.getSupportedPreviewSizes();
     
-    //List<Camera.Size> supportedSizes = parameters.getSupportedPictureSizes();
-    
     if ( cx > 0 && cy > 0 ) {
       if ( !isFrameSizeSupported(cx, cy, supportedSizes) ) {
         status = KERR_FRAME_SIZE_NOT_SUPPORTED;
@@ -165,9 +161,9 @@ public class CameraPreview extends SurfaceView
     }
     else {
       /* Auto select picture size */
-//      Camera.Size size = parameters.getPreferredPreviewSizeForVideo();
-//      cx = size.width;
-//      cy = size.height;
+      //  Camera.Size size = parameters.getPreferredPreviewSizeForVideo();
+      //  cx = size.width;
+      //  cy = size.height;
       cx = 640;
       cy = 480;
     }
@@ -190,7 +186,6 @@ public class CameraPreview extends SurfaceView
       closeCamera();
     }
     
-    log.d(TAG, "LEAVE startPreview()");
     return status;    
   }
   
@@ -199,7 +194,6 @@ public class CameraPreview extends SurfaceView
     
     switch (state_) {
     case STATE_STREAMING:
-      log.d(TAG, "stopStreaming()");
       stopStream();
       // no break here
     case STATE_PREVIEW:
@@ -241,7 +235,6 @@ public class CameraPreview extends SurfaceView
       return KERR_IN_USE;
     }
     
-    log.d(TAG, "startStream()");
     if ((status = startNativeStream(opts)) == KERR_NONE) {
       state_ = STATE_STREAMING;  // fixme: race condition
       emitStreamStarted();
@@ -252,7 +245,6 @@ public class CameraPreview extends SurfaceView
   
   public void stopStream() {
     if ( state_ == STATE_STREAMING ) {
-      log.d(TAG, "stopStream()");
       stopNativeStream();
       state_ = STATE_PREVIEW;
       emitStreamFinished();
@@ -381,8 +373,6 @@ public class CameraPreview extends SurfaceView
   /** allocate frame buffers and start camera preview */
   private int startCameraPreview() {
 
-    log.d(TAG, "ENTER startCameraPreview()");
-    
     Camera.Size frameSize;
     int bufferSize;
 
@@ -418,7 +408,6 @@ public class CameraPreview extends SurfaceView
 
     }
 
-    log.d(TAG, "LEAVE startCameraPreview(): status=%d", status);
     return status;
   }
 
