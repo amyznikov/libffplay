@@ -1,7 +1,12 @@
 #! /bin/bash
 
 platform=android-15
-prefix=$(dirname ${PWD})
+prefix=$(dirname ${PWD})/sysroot
+
+echo "Library will installed into ${prefix}"
+mkdir -p "${prefix}" || exit 1
+  
+
 
 ndk_build=$(which ndk-build)
 if [[ "$ndk_build" == "" ]] ; then
@@ -31,17 +36,21 @@ CFLAGS="--sysroot=${sysroot} -O3 -fPIC -DANDROID -D__thumb__ -mthumb -Wfatal-err
 CXX=arm-linux-androideabi-g++
 CXXFLAGS="${CFLAGS}"
 
-./configure \
-    --host=arm-linux \
-    --prefix=${prefix} \
-    --enable-static=yes \
-    --enable-shared=no \
-    --disable-frontend \
-    --disable-rpath \
-    --with-pic \
-    CPP="${CPP}" \
-    CPPFLAGS="${CPPFLAGS}" \
-    CC="${CC}" \
-    CFLAGS="${CFLAGS}" \
-	CXX="${CXX}" \
-	CXXFLAGS="${CXXFLAGS}"
+cd lame-3.99.5 && \
+	./configure \
+	    --host=arm-linux \
+	    --prefix=${prefix} \
+	    --enable-static=yes \
+	    --enable-shared=no \
+	    --disable-frontend \
+	    --disable-rpath \
+	    --with-pic \
+	    CPP="${CPP}" \
+	    CPPFLAGS="${CPPFLAGS}" \
+	    CC="${CC}" \
+	    CFLAGS="${CFLAGS}" \
+		CXX="${CXX}" \
+		CXXFLAGS="${CXXFLAGS}" && \
+		make V=1 all && \
+		make V=1 install 
+
