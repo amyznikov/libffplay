@@ -1,0 +1,55 @@
+#! /bin/bash
+
+platform=android-15
+prefix=$(dirname ${PWD})/sysroot
+
+echo "Library will installed into ${prefix}"
+mkdir -p "${prefix}" || exit 1
+
+
+
+ndk_build=$(which ndk-build)
+if [[ "$ndk_build" == "" ]] ; then
+ echo "Can not locate ndk-build in PATH. Is NDK installed correctly?";
+ exit 1;
+fi
+
+ndkroot=$(dirname "$ndk_build")
+if [[ "$ndkroot" == "" ]] ; then
+ echo "Can not locate NDK root. Is NDK installed correctly?";
+ exit 1;
+fi
+
+sysroot="${ndkroot}/platforms/${platform}/arch-arm"
+if [[ ! -d "${sysroot}" ]]; then
+	echo "ERROR: ${sysroot} not exists."
+	exit 1; 
+fi
+
+
+CPP=arm-linux-androideabi-cpp
+CPPFLAGS="--sysroot=${sysroot}"
+
+CC=arm-linux-androideabi-gcc
+CFLAGS="--sysroot=${sysroot} -O3 -fPIC -DANDROID -D__thumb__ -mthumb -Wfatal-errors -Wno-deprecated -mfloat-abi=softfp -mfpu=neon -marm -march=armv7-a -fno-math-errno -fomit-frame-pointer -ffast-math -fassociative-math -fno-signed-zeros -fexpensive-optimizations"
+
+CXX=arm-linux-androideabi-g++
+CXXFLAGS="${CFLAGS}"
+
+LDFLAGS="-L${sysroot}/usr/lib"
+
+cd x264 && \
+	./configure \
+	  --prefix=${prefix} \
+	  --sysroot=${sysroot} \
+	  --cross-prefix=arm-linux-androideabi- \
+	  --host=arm-linux-androideabi \
+	  --enable-pic \
+	  --extra-cflags="${CFLAGS}" \
+	  --extra-ldflags="${LDFLAGS}" \
+	  --chroma-format=all \
+	  --enable-static \
+	  --disable-opencl \
+	  --disable-cli && \
+	  make V=1 all && \
+	  make V=1 install
