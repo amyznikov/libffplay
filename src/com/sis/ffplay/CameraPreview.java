@@ -3,7 +3,6 @@ package com.sis.ffplay;
 
 import java.lang.ref.WeakReference;
 import java.util.List;
-
 import com.sis.ffplay.log;
 import android.content.Context;
 import android.view.Display;
