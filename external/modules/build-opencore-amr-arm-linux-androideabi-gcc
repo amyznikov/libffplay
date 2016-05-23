@@ -1,0 +1,62 @@
+#! /bin/bash
+
+platform=android-15
+prefix=$(dirname ${PWD})/sysroot
+
+echo "Library will installed into ${prefix}"
+mkdir -p "${prefix}" || exit 1
+  
+
+
+ndk_build=$(which ndk-build)
+if [[ "$ndk_build" == "" ]] ; then
+ echo "Can not locate ndk-build in PATH. Is NDK installed correctly?";
+ exit 1;
+fi
+
+ndkroot=$(dirname "$ndk_build")
+if [[ "$ndkroot" == "" ]] ; then
+ echo "Can not locate NDK root. Is NDK installed correctly?";
+ exit 1;
+fi
+
+sysroot="${ndkroot}/platforms/${platform}/arch-arm"
+if [[ ! -d "${sysroot}" ]]; then
+	echo "ERROR: ${sysroot} not exists."
+	exit 1; 
+fi
+
+
+CPP=arm-linux-androideabi-cpp
+CPPFLAGS="--sysroot=${sysroot}"
+
+CC=arm-linux-androideabi-gcc
+CFLAGS="--sysroot=${sysroot} -O3 -fPIC -DANDROID -D__thumb__ -mthumb -Wfatal-errors -Wno-deprecated -mfloat-abi=softfp -mfpu=neon -marm -march=armv7-a -fno-math-errno -fomit-frame-pointer -ffast-math -fassociative-math -fno-signed-zeros -fexpensive-optimizations"
+
+CXX=arm-linux-androideabi-g++
+CXXFLAGS="${CFLAGS}"
+
+cd opencore-amr && \
+aclocal && \
+    libtoolize && \
+    autoconf && \
+    automake --add-missing &&
+    ac_cv_func_malloc_0_nonnull=yes ./configure \
+	--host=arm-linux \
+	--prefix=${prefix} \
+    --with-sysroot=${sysroot} \
+	--enable-static=yes \
+	--enable-shared=no \
+	--enable-gcc-armv5 \
+	--with-pic=yes \
+	--with-gnu-ld \
+	--disable-dependency-tracking \
+    CPP="${CPP}" \
+    CPPFLAGS="${CPPFLAGS}" \
+    CC="${CC}" \
+    CFLAGS="${CFLAGS}" \
+	CXX="${CXX}" \
+	CXXFLAGS="${CXXFLAGS}" && \
+	make V=1 all && \
+	make V=1 install
+ 
