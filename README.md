@@ -53,14 +53,12 @@ $ tree /opt/android-ndk/special-is/lib/ffplay
 ├── armeabi-v7a
 │   └── libffplay.so
 ├── doc
-│   └── libffplay.pdf
 └── ffplay
     └── com
         └── sis
-            ├── ffplay
-            │   ├── CameraPreview.java
-            │   └── log.java
-            └── FFVideoView.java
+            └── ffplay
+                ├── CameraPreview.java
+                └── log.java
 
 ```
 
