@@ -1,0 +1,12 @@
+[submodule "external/ffmpeg"]
+	path = external/ffmpeg
+	url = https://git.ffmpeg.org/ffmpeg.git
+[submodule "external/opencore-amr"]
+	path = external/opencore-amr
+	url = git://git.code.sf.net/p/opencore-amr/code
+[submodule "external/x264"]
+	path = external/x264
+	url = git://git.videolan.org/x264.git
+[submodule "external/x265"]
+	path = external/x265
+	url = https://github.com/videolan/x265.git

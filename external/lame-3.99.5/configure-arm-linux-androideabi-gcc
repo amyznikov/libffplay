@@ -1,0 +1,47 @@
+#! /bin/bash
+
+platform=android-15
+prefix=$(dirname ${PWD})
+
+ndk_build=$(which ndk-build)
+if [[ "$ndk_build" == "" ]] ; then
+ echo "Can not locate ndk-build in PATH. Is NDK installed correctly?";
+ exit 1;
+fi
+
+ndkroot=$(dirname "$ndk_build")
+if [[ "$ndkroot" == "" ]] ; then
+ echo "Can not locate NDK root. Is NDK installed correctly?";
+ exit 1;
+fi
+
+sysroot="${ndkroot}/platforms/${platform}/arch-arm"
+if [[ ! -d "${sysroot}" ]]; then
+	echo "ERROR: ${sysroot} not exists."
+	exit 1; 
+fi
+
+
+CPP=arm-linux-androideabi-cpp
+CPPFLAGS="--sysroot=${sysroot}"
+
+CC=arm-linux-androideabi-gcc
+CFLAGS="--sysroot=${sysroot} -O3 -fPIC -DANDROID -D__thumb__ -mthumb -Wfatal-errors -Wno-deprecated -mfloat-abi=softfp -mfpu=neon -marm -march=armv7-a -fno-math-errno -fomit-frame-pointer -ffast-math -fassociative-math -fno-signed-zeros -fexpensive-optimizations"
+
+CXX=arm-linux-androideabi-g++
+CXXFLAGS="${CFLAGS}"
+
+./configure \
+    --host=arm-linux \
+    --prefix=${prefix} \
+    --enable-static=yes \
+    --enable-shared=no \
+    --disable-frontend \
+    --disable-rpath \
+    --with-pic \
+    CPP="${CPP}" \
+    CPPFLAGS="${CPPFLAGS}" \
+    CC="${CC}" \
+    CFLAGS="${CFLAGS}" \
+	CXX="${CXX}" \
+	CXXFLAGS="${CXXFLAGS}"

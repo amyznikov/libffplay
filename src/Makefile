@@ -13,8 +13,8 @@ VERSION        = 0.0.0
 
 all: lib
 
-APP_ABI        = armeabi-v7a
 APP_PLATFORM   = android-15
+APP_ABI        = armeabi-v7a
 NDK_TOOLCHAIN_VERSION = 4.9
 
 
@@ -23,6 +23,8 @@ HEADERS         += sendvideo.h opensless-audio.h ffplay-java-api.h pthread_wait.
 SOURCES         += sendvideo.c opensless-audio.c ffplay-java-api.c debug.c ffmpeg.c 
 JNIHEADERS      += com_sis_ffplay_CameraPreview.h
 JNISOURCES      += com_sis_ffplay_CameraPreview.c
+
+#EXTERNALDEPS    := $(shell readlink -f ${PWD}/../external)
 
 # 
 # -mfpu=vfpv3-d16
@@ -48,12 +50,6 @@ endif
 
 ndk_root := $(shell dirname $(ndk_build))
 sdk_root := $(shell dirname $(shell dirname $(android)))
-
-ifndef APP_PLATFORM
-maxplatform=$(shell ls -1 $(sdk_root)/platforms | fgrep android | sed 's/android-//g' | sort -rg  | head -n 1)
-APP_PLATFORM = android-$(maxplatform)
-endif
-
 
 classpath:=$(sdk_root)/platforms/$(APP_PLATFORM)/android.jar
 ifeq ("$(wildcard $(classpath))","")
@@ -96,22 +92,23 @@ jni/Android.mk : Makefile
 	echo 'include $$(CLEAR_VARS)' >> $@
 	echo 'LOCAL_MODULE    := $(LIBNAME)' >> $@
 	echo 'SPECIALISDIR    := $(ndk_root)/special-is' >> $@
-	echo 'INCLUDES        += -I. -I$$(SPECIALISDIR)/include' >> $@
+	echo 'EXTERNALDEPS    := $$(LOCAL_PATH)/../external' >> $@
+	echo 'INCLUDES        += -I. -I$$(EXTERNALDEPS)/include' >> $@
 	echo 'LOCAL_SRC_FILES := $(SOURCES) $(JNISOURCES)' >> $@
 	echo "TARGET_CFLAGS   := $(TARGET_CFLAGS)" >> $@
 	echo "TARGET_arm_release_CFLAGS := $(TARGET_arm_release_CFLAGS)" >> $@
 	echo "TARGET_thumb_release_CFLAGS := $(TARGET_thumb_release_CFLAGS)" >> $@
 	echo 'LOCAL_CFLAGS    := -std=gnu99 $(DEFINES) $$(INCLUDES) -D__LINUX__ -DEXPORT=""' >> $@
 	echo 'LOCAL_CXXFLAGS  := $$(LOCAL_CFLAGS)' >> $@
-	echo 'LOCAL_LDLIBS    := $$(SPECIALISDIR)/lib/libavutil.a \
-                             $$(SPECIALISDIR)/lib/libavformat.a \
-                             $$(SPECIALISDIR)/lib/libswscale.a \
-                             $$(SPECIALISDIR)/lib/libavcodec.a \
-                             $$(SPECIALISDIR)/lib/libswresample.a \
-                             $$(SPECIALISDIR)/lib/libavutil.a \
-                             $$(SPECIALISDIR)/lib/libx264.a \
-                             $$(SPECIALISDIR)/lib/libmp3lame.a \
-                             $$(SPECIALISDIR)/lib/libopencore-amrnb.a \
+	echo 'LOCAL_LDLIBS    := $$(EXTERNALDEPS)/lib/libavutil.a \
+                             $$(EXTERNALDEPS)/lib/libavformat.a \
+                             $$(EXTERNALDEPS)/lib/libswscale.a \
+                             $$(EXTERNALDEPS)/lib/libavcodec.a \
+                             $$(EXTERNALDEPS)/lib/libswresample.a \
+                             $$(EXTERNALDEPS)/lib/libavutil.a \
+                             $$(EXTERNALDEPS)/lib/libx264.a \
+                             $$(EXTERNALDEPS)/lib/libmp3lame.a \
+                             $$(EXTERNALDEPS)/lib/libopencore-amrnb.a \
                              -lOpenSLES -lz -lm -landroid -llog' >> $@
 	echo 'include $$(BUILD_SHARED_LIBRARY)' >> $@
 
