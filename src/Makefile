@@ -15,7 +15,7 @@ all: lib
 
 APP_PLATFORM   = android-15
 APP_ABI        = armeabi-v7a
-NDK_TOOLCHAIN_VERSION = 4.9
+# NDK_TOOLCHAIN_VERSION = 4.9
 
 
 DEFINES         += -DFFPLAY_VERSION=\"$(VERSION)\"
@@ -23,8 +23,6 @@ HEADERS         += sendvideo.h opensless-audio.h ffplay-java-api.h pthread_wait.
 SOURCES         += sendvideo.c opensless-audio.c ffplay-java-api.c debug.c ffmpeg.c 
 JNIHEADERS      += com_sis_ffplay_CameraPreview.h
 JNISOURCES      += com_sis_ffplay_CameraPreview.c
-
-#EXTERNALDEPS    := $(shell readlink -f ${PWD}/../external)
 
 # 
 # -mfpu=vfpv3-d16
