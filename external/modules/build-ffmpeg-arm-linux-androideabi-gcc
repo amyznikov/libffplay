@@ -28,6 +28,12 @@ mkdir -p "${prefix}" || exit 1
 
 
 
+ndk_build=$(which ndk-build)
+if [[ "$ndk_build" == "" ]] ; then
+ echo "Can not locate ndk-build in PATH. Is NDK installed correctly?";
+ exit 1;
+fi
+
 ndkroot=$(dirname "$ndk_build")
 if [[ "$ndkroot" == "" ]] ; then
  echo "Can not locate NDK root. Is NDK installed correctly?";
