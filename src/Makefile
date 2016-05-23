@@ -24,7 +24,7 @@ SOURCES         += sendvideo.c opensless-audio.c ffplay-java-api.c debug.c ffmpe
 JNIHEADERS      += com_sis_ffplay_CameraPreview.h
 JNISOURCES      += com_sis_ffplay_CameraPreview.c
 
-# 
+
 # -mfpu=vfpv3-d16
 TARGET_CFLAGS   := -Wall -Wextra -O3 -g0 -mthumb -marm -mfpu=neon -march=armv7-a -mfloat-abi=softfp \
                    -mvectorize-with-neon-quad -fsee \
