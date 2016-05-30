@@ -78,12 +78,17 @@ cd ffmpeg && \
 	  --disable-ffprobe \
 	  --extra-cflags="${CFLAGS}" \
 	  --extra-ldflags="${LDFLAGS}" \
-	  --enable-gpl \
 	  --enable-avresample \
 	  --enable-libx264 \
 	  --enable-libmp3lame  \
 	  --enable-libopencore-amrnb \
+	  --enable-openssl \
+	  --enable-gpl \
 	  --enable-version3 \
-	  --extra-ldexeflags="-L${prefix}/lib ${prefix}/lib/libx264.a ${prefix}/lib/libmp3lame.a ${prefix}/lib/libopencore-amrnb.a" && \
+	  --enable-nonfree && \
 	  make V=1 all && \
 	  make V=1 install
+
+
+#	  --extra-ldexeflags="-L${prefix}/lib ${prefix}/lib/libx264.a ${prefix}/lib/libmp3lame.a ${prefix}/lib/libopencore-amrnb.a" && \
+	  
