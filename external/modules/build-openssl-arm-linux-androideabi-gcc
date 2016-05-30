@@ -51,5 +51,5 @@ cd openssl || exit 1
 
 # This configure & make works with OpenSSL_1_0_2-stable 
 ./Configure  --prefix=${prefix} --cross-compile-prefix=arm-linux-androideabi- no-shared android-armv7 || exit 1
-ANDROID_DEV="${sysroot}/usr" make build_libcrypto build_libssl install_sw DIRS='crypto ssl engines' || exit 1
+ANDROID_DEV="${sysroot}/usr" make build_libcrypto build_libssl openssl.pc install_sw DIRS='crypto ssl engines' || exit 1
 
