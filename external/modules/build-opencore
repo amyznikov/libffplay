@@ -1,0 +1,25 @@
+#! /bin/bash
+
+# This will setup prefix, sysroot and PATH to arm-linux-androideabi-gcc
+source ./setup-build-env-arm-linux-androideabi-gcc
+
+cd opencore-amr && \
+    aclocal && libtoolize && autoconf && automake --add-missing &&
+      ac_cv_func_malloc_0_nonnull=yes ./configure \
+        --host=arm-linux \
+        --prefix=${prefix} \
+        --with-sysroot=${sysroot} \
+        --enable-static=yes \
+        --enable-shared=no \
+        --enable-gcc-armv5 \
+        --with-pic=yes \
+        --with-gnu-ld \
+        --disable-dependency-tracking \
+          CPP="${CPP}" \
+          CPPFLAGS="--sysroot=${sysroot} ${CPPFLAGS}" \
+          CC="${CC}" \
+          CFLAGS="${CFLAGS}" \
+          CXX="${CXX}" \
+          CXXFLAGS="${CXXFLAGS}" && \
+              make V=1 all install
+

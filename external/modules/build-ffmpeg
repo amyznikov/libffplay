@@ -1,0 +1,48 @@
+#! /bin/bash
+
+# This will setup prefix, sysroot and PATH to arm-linux-androideabi-gcc
+source ./setup-build-env-arm-linux-androideabi-gcc
+
+#	  --cross-prefix=arm-linux-androideabi- \
+#    --extra-ldexeflags="${LDFLAGS}" \
+#    --extra-ldlibflags="${LDFLAGS}" \
+
+
+#   \
+#  --extra-cflags="${CFLAGS}" \
+#  --extra-ldflags="${LDFLAGS}" \
+#    --extra-cxxflags="${CXXFLAGS}" \
+
+cd ffmpeg && \
+    ./configure \
+       --sysroot=${sysroot} \
+       --prefix=${prefix} \
+       --enable-cross-compile \
+       --target-os=linux \
+       --arch=arm \
+       --enable-thumb \
+       --enable-pic \
+       --disable-stripping \
+       --disable-devices \
+       --disable-doc \
+       --disable-ffplay \
+       --disable-ffserver \
+       --disable-ffmpeg \
+       --disable-ffprobe \
+       --enable-avresample \
+       --enable-libx264 \
+       --enable-libmp3lame  \
+       --enable-libopencore-amrnb \
+       --enable-openssl \
+       --enable-gpl \
+       --enable-version3 \
+       --enable-nonfree \
+       --cc="${CC}" \
+       --cxx="${CXX}" \
+       --ar="${AR}" \
+       --as="${CC}" \
+       --strip="${STRIP}" \
+       --extra-cflags="-I${prefix}/include " \
+       --extra-cxxflags="-I${prefix}/include" && \
+          make V=1 all install
+

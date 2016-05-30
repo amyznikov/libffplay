@@ -1,0 +1,15 @@
+#! /bin/bash
+
+# This will setup prefix, sysroot and PATH to arm-linux-androideabi-gcc
+source ./setup-build-env-arm-linux-androideabi-gcc
+
+# This configure & make works with OpenSSL_1_0_2-stable 
+
+cd openssl && \
+  ./Configure  \
+    --prefix=${prefix} \
+      no-shared \
+      android-armv7 && \
+        ANDROID_DEV="${sysroot}/usr" \
+          make build_libcrypto build_libssl openssl.pc install_sw \
+            DIRS='crypto ssl engines'

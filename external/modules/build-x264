@@ -1,0 +1,17 @@
+#! /bin/bash
+
+# This will setup prefix, sysroot and PATH to arm-linux-androideabi-gcc
+source ./setup-build-env-arm-linux-androideabi-gcc
+
+cd x264 && \
+    ./configure \
+       --sysroot=${sysroot} \
+       --prefix=${prefix} \
+       --host=arm-linux-androideabi \
+       --enable-pic \
+       --chroma-format=all \
+       --enable-static \
+       --disable-opencl \
+       --disable-cli && \
+            make V=1 all install
+

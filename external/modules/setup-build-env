@@ -1,0 +1,96 @@
+# This will setup prefix, sysroot and PATH to arm-linux-androideabi-gcc
+
+platform=android-15
+prefix=$(dirname ${PWD})/sysroot
+
+
+function errmsg() {
+  echo -e "\033[1m\033[31m$1\033[0m" 1>&2
+}
+
+
+for arg in "$@"
+do
+case $arg in
+    platform=*|--platform=*)
+    	platform="${arg#*=}"
+    	shift
+    	;;
+    	
+    prefix=*|--prefix=*)
+    	prefix="${arg#*=}"
+    	shift
+    	;;    
+    *)
+    	errmsg "Unknown option $arg specified"
+    	exit 1;
+    ;;
+esac
+done
+
+
+ndk_build=$(which ndk-build)
+if [[ "$ndk_build" == "" ]] ; then
+ errmsg "Can not locate ndk-build in PATH. Is NDK installed correctly?";
+ exit 1;
+fi
+
+ndkroot=$(dirname "$ndk_build")
+if [[ "$ndkroot" == "" ]] ; then
+ errmsg "Can not locate NDK root. Is NDK installed correctly?";
+ exit 1;
+fi
+
+sysroot="${ndkroot}/platforms/${platform}/arch-arm"
+if [[ ! -d "${sysroot}" ]]; then
+	errmsg "ERROR: ${sysroot} not exists."
+	exit 1; 
+fi
+
+export CPP=$(ndk-which cpp)
+export CPPFLAGS=""
+
+export CC=$(ndk-which gcc)
+export CFLAGS="-O3 -fPIC -DANDROID -D__thumb__ -mthumb -Wfatal-errors -Wno-deprecated -mfloat-abi=softfp -mfpu=neon -marm -march=armv7-a -fno-math-errno -fomit-frame-pointer -ffast-math -fassociative-math -fno-signed-zeros -fexpensive-optimizations"
+
+
+export CXX=$(ndk-which g++)
+export CXXFLAGS="${CFLAGS}"
+
+export LD=$(ndk-which ld)
+export LDFLAGS="--sysroot=${sysroot} -L${prefix}/lib"
+
+export AS="${CC}" # Real AS does not work for some reasons
+export AR=$(ndk-which ar)
+export STRIP=$(ndk-which strip)
+
+
+if [[ "${CC}" == "" ]] ; then 
+  errmsg "Can not locate working C compiler"
+  exit 1;
+fi
+
+#export PATH="$(dirname ${CC}):${PATH}"
+
+echo -e "platform=${platform}"
+echo -e "sysroot=${sysroot}"
+echo -e "prefix=${prefix}\n"
+
+echo -e "CPP=${CPP}"
+echo -e "CPPFLAGS=${CPPFLAGS}\n"
+
+echo -e "CC=${CC}"
+echo -e "CFLAGS=${CFLAGS}\n"
+
+echo -e "CXX=${CXX}"
+echo -e "CXXFLAGS=${CXXFLAGS}\n"
+
+echo -e "LD=${LD}"
+echo -e "LDFLAGS=${LDFLAGS}\n"
+
+echo -e "AS=${AS}"
+echo -e "AR=${AR}\n"
+echo -e "STRIP=${STRIP}\n"
+
+mkdir -p "${prefix}" || exit 1
+

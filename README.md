@@ -19,10 +19,10 @@ Use (old) Android Camera API and ffmpeg libs to send audio/video streams from An
   
 4. Build submodules 
    
-  It is mandatory to run the script 'build-modules-arm-linux-androideabi-gcc' from inside of libffplay/external directory, 
+  It is mandatory to run the script 'build-modules' from inside of libffplay/external directory, 
   because of it uses relative path names:
    
-  $ cd external && ./build-modules-arm-linux-androideabi-gcc
+  $ cd external && ./build-modules
    
   By default this script will build libraries for android-15 platform (Android 4.0.3 devices).
   To change target platfom, open the script in a text editor and change target platform as desired.
@@ -37,6 +37,10 @@ Use (old) Android Camera API and ffmpeg libs to send audio/video streams from An
   
   By default, target platform is android-15 platform (Android 4.0.3 devices).
   To change target platform, open Makefile in text editor and set desired platform in APP_PLATFORM= variable.
+  
+  Warning: Make sure the submodules and libffplay.so are set to build for the same android platform!
+    
+  
   
 6. Install libffplay into some location where application projects can find it.
   
@@ -53,7 +57,6 @@ $ tree /opt/android-ndk/special-is/lib/ffplay
 ├── Android.mk
 ├── armeabi-v7a
 │   └── libffplay.so
-├── doc
 └── ffplay
     └── com
         └── sis
@@ -80,19 +83,28 @@ $ cat /home/projects/CameraDemo/jni/Application.mk
   APP_OPTIM             := release
   APP_DEBUGGABLE        := false
 ```
-See https://github.com/amyznikov/CameraDemo as some example.
 
 
-   
-   
-   
+To use libffplay with ant, use custom_rules.xml to import java source directory 
+and precompiled binaries into project:
+
+```
+$ cat custom_rules.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+
+  <property environment="env" />
+  <property name="specialis.dir" value="${env.ANDROID_NDK}/special-is"/>
+  <property name="source.dir" value="src;${specialis.dir}/lib/ffplay/ffplay"/>
+
+  <target name="-pre-build">
+    <copy todir="${jar.libs.dir}/armeabi-v7a">
+     <fileset dir="${specialis.dir}/lib/ffplay/armeabi-v7a" includes="*.so" />
+    </copy>
+  </target>
+</project>
+```
 
 
+See https://github.com/amyznikov/CameraDemo as some simple example.
 
-  
-  
-   
-   
-   
-   
-   
