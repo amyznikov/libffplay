@@ -1,7 +1,7 @@
 #! /bin/bash
 
 # This will setup prefix, sysroot and PATH to arm-linux-androideabi-gcc
-source ./setup-build-env-arm-linux-androideabi-gcc
+source ./setup-build-env
 
 cd x264 && \
     ./configure \
